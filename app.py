@@ -11,6 +11,7 @@ import os, warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # python
 
@@ -21,13 +22,47 @@ from urllib.parse import quote_plus
 
 import requests
 from bs4 import BeautifulSoup
+import numpy as np
+from PIL import Image
+
+# Enhanced DeepFace import with better error handling
+DEEPFACE_AVAILABLE = False
+DEEPFACE_ERROR = None
 
 try:
+    import cv2
+    import tensorflow as tf
+    
+    # suppress tf warnings
+    tf.get_logger().setLevel('ERROR')
+    
+    # Import DeepFace with specific error handling
     from deepface import DeepFace
-    DEEPFACE_AVAILABLE = True
+    
+    # test DeepFace with a dummy analysis to ensure it's working
+    # create a small test image
+    test_img = np.ones((48, 48, 3), dtype=np.uint8) * 128
+    test_path = "temp_test.jpg"
+    cv2.imwrite(test_path, test_img)
+    
+    try:
+        _ = DeepFace.analyze(
+            img_path=test_path,
+            actions=["emotion"],
+            enforce_detection=False,
+            silent=True
+        )
+        DEEPFACE_AVAILABLE = True
+        os.remove(test_path)
+    except Exception as test_error:
+        DEEPFACE_ERROR = f"DeepFace test failed: {str(test_error)}"
+        if os.path.exists(test_path):
+            os.remove(test_path)
+    
+except ImportError as e:
+    DEEPFACE_ERROR = f"Import error: {str(e)}"
 except Exception as e:
-    DeepFace = None
-    DEEPFACE_AVAILABLE = False
+    DEEPFACE_ERROR = f"DeepFace initialization error: {str(e)}"
 
 DEFAULT_KEYS = {
     "video_urls": [],
@@ -289,15 +324,30 @@ def fetch_recommendations(queries: List[str], total: int = 12) -> List[Dict[str,
     return unique_videos[:total]
 
 def analyze_emotion_deepface(img_bytes) -> Tuple[str, float]:
-    """Analyze emotion using DeepFace with error handling"""
+    """Analyze emotion using DeepFace with enhanced error handling"""
     if not DEEPFACE_AVAILABLE:
+        st.warning(f"⚠️ DeepFace not available: {DEEPFACE_ERROR}")
         return "neutral", 50.0
     
+    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
-            tmp_file.write(img_bytes.getbuffer())
-            tmp_path = tmp_file.name
+        pil_image = Image.open(img_bytes)
         
+        if pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
+        
+        img_array = np.array(pil_image)
+        
+        # create temporary file
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+            
+        pil_image.save(tmp_path, 'JPEG')
+        
+        if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            raise Exception("Failed to save temporary image file")
+        
+        # analyze with DeepFace
         result = DeepFace.analyze(
             img_path=tmp_path,
             actions=["emotion"],
@@ -305,29 +355,52 @@ def analyze_emotion_deepface(img_bytes) -> Tuple[str, float]:
             silent=True
         )
         
+        # both single result and list of results
         if isinstance(result, list):
             result = result[0]
         
         dominant_emotion = result["dominant_emotion"]
         confidence = result["emotion"][dominant_emotion]
         
-        os.unlink(tmp_path)
+        # Clean up
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         
+        # Validate results
+        if dominant_emotion not in MOOD_KEYWORDS:
+            st.warning(f"Unknown emotion detected: {dominant_emotion}, using neutral")
+            return "neutral", confidence
+            
         return dominant_emotion, confidence
         
     except Exception as e:
-        if 'tmp_path' in locals():
+        # Clean up on error
+        if tmp_path and os.path.exists(tmp_path):
             try:
                 os.unlink(tmp_path)
             except:
                 pass
-        st.warning(f"DeepFace analysis failed: {str(e)}")
+        
+        error_msg = str(e)
+        st.error(f"❌ Emotion analysis failed: {error_msg}")
+        
+        # more specific error information
+        if "No face" in error_msg:
+            st.info("💡 Tip: Make sure your face is clearly visible and well-lit in the photo")
+        elif "enforce_detection" in error_msg:
+            st.info("💡 Tip: Try taking a clearer photo with better lighting")
+        
         return "neutral", 50.0
 
 
-# Header
-st.title("🎵 Facial Expression Driven Audio PLayback System")
+# header
+st.title("🎵 Facial Expression Driven Audio Playback System")
 st.markdown("*Discover music that matches your mood using AI emotion detection*")
+
+# Show DeepFace status at the top if there's an issue
+if not DEEPFACE_AVAILABLE:
+    st.warning(f"⚠️ **DeepFace Status:** Not Available - {DEEPFACE_ERROR}")
+    st.info("🔧 **Quick Fix:** Try restarting the app or check if all dependencies are properly installed")
 
 left_col, right_col = st.columns([1, 1])
 
@@ -501,6 +574,13 @@ with st.sidebar:
         st.session_state["search_history"] = set()
         st.success("✅ Search history cleared!")
     
+    # if st.button("🔧 Test DeepFace", use_container_width=True):
+    #     if DEEPFACE_AVAILABLE:
+    #         st.success("✅ DeepFace is working correctly!")
+    #     else:
+    #         st.error(f"❌ DeepFace Error: {DEEPFACE_ERROR}")
+    #         st.info("💡 Try restarting the application or reinstalling dependencies")
+    
     st.markdown("---")
     
     st.subheader("ℹ️ About")
@@ -515,11 +595,25 @@ with st.sidebar:
     """)
     
     with st.expander("🔧 Technical Details"):
+        deepface_status = "✅ Working" if DEEPFACE_AVAILABLE else f"❌ Error: {DEEPFACE_ERROR}"
         st.markdown(f"""
-        - **DeepFace Available:** {'✅ Yes' if DEEPFACE_AVAILABLE else '❌ No (using manual mode)'}
+        - **DeepFace Status:** {deepface_status}
         - **Supported Languages:** English, Hindi, Bengali
         - **Supported Emotions:** Happy, Sad, Angry, Fear, Surprise, Disgust, Neutral
         - **Search History:** {len(st.session_state.get('search_history', set()))} unique videos
         """)
+        
+        if not DEEPFACE_AVAILABLE:
+            st.markdown("### 🔧 Troubleshooting:")
+            st.markdown("""
+            1. **Restart** the Streamlit app
+            2. **Check** if all dependencies are installed:
+               ```
+               pip install deepface opencv-python tensorflow
+               ```
+            3. **Verify** camera permissions
+            4. **Try** manual mood selection as fallback
+            """)
     
     st.markdown("---")
+    
