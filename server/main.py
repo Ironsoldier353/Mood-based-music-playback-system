@@ -46,6 +46,7 @@ class WebcamCapture(BaseModel):
     language: str = "english"
     custom_preferences: Optional[str] = ""
     max_results: int = 15
+    manual_mood: Optional[str] = None
 
 class EmotionResponse(BaseModel):
     emotion: str
@@ -108,10 +109,20 @@ async def detect_mood_from_webcam(capture: WebcamCapture):
 async def get_music_recommendations(capture: WebcamCapture):
     """Get music recommendations based on webcam capture mood"""
     try:
-        # First detect mood
-        mood_response = await detect_mood_from_webcam(capture)
-        mood = mood_response.emotion
+        # Use manual mood if provided, otherwise detect from image
+        if capture.manual_mood:
+            mood = capture.manual_mood.lower()
+            if not validate_emotion(mood):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid manual mood. Must be one of: {get_supported_emotions()}"
+                )
+        else:
+            # First detect mood
+            mood_response = await detect_mood_from_webcam(capture)
+            mood = mood_response.emotion
         
+        # Rest of the function remains the same...
         # Validate language
         if capture.language.lower() not in SUPPORTED_LANGS:
             raise HTTPException(
@@ -144,6 +155,5 @@ async def get_music_recommendations(capture: WebcamCapture):
     except Exception as e:
         logger.error(f"Error getting music recommendations: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting recommendations: {str(e)}")
-
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
