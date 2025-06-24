@@ -74,7 +74,7 @@ export default function MoodMusicPlayer() {
   const [seeking, setSeeking] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(0.8); // Default volume (80%)
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [showVolumeSlider, setShowVolumeSlider] = useState<boolean>(false);
+  // const [showVolumeSlider, setShowVolumeSlider] = useState<boolean>(false);
 
   // Start webcam
   useEffect(() => {
