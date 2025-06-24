@@ -122,7 +122,6 @@ async def get_music_recommendations(capture: WebcamCapture):
             mood_response = await detect_mood_from_webcam(capture)
             mood = mood_response.emotion
         
-        # Rest of the function remains the same...
         # Validate language
         if capture.language.lower() not in SUPPORTED_LANGS:
             raise HTTPException(

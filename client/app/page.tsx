@@ -201,7 +201,7 @@ export default function MoodMusicPlayer() {
             language: language,
             custom_preferences: preferences,
             max_results: playlistSize,
-            manual_mood: useManualMood ? moodToUse : null,
+            manual_mood: useManualMood ? moodToUse : undefined,
           }),
         }
       );
