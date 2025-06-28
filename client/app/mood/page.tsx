@@ -435,7 +435,7 @@ export default function MoodMusicPlayer() {
             request.
           </p>
           <p className="text-gray-400 text-sm mt-4">
-            Trying to connect to: {API_URL}
+            Trying to connect to the backend...
           </p>
         </div>
       )}
