@@ -7,20 +7,88 @@ import re
 from typing import List, Dict, Optional, Set
 from urllib.parse import quote_plus
 import logging
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global search history to avoid duplicate results
-search_history: Set[str] = set()
+# Session-based search history with automatic cleanup
+class SearchHistoryManager:
+    def __init__(self, max_age_minutes: int = 30, auto_clean_threshold: int = 45, target_size: int = 25):
+        self.history: Dict[str, datetime] = {}
+        self.max_age = timedelta(minutes=max_age_minutes)
+        self.auto_clean_threshold = auto_clean_threshold  # Auto-clean when entries exceed this
+        self.target_size = target_size  # Target size after cleaning
+    
+    def add_url(self, url: str):
+        """Add URL to history with timestamp and auto-clean if needed"""
+        # Always cleanup old entries first
+        self.cleanup_old_entries()
+        
+        # Add the new URL
+        self.history[url] = datetime.now()
+        
+        # Auto-clean if we exceed the threshold
+        if len(self.history) > self.auto_clean_threshold:
+            self._auto_clean()
+    
+    def is_duplicate(self, url: str) -> bool:
+        """Check if URL was recently searched"""
+        self.cleanup_old_entries()
+        return url in self.history
+    
+    def cleanup_old_entries(self):
+        """Remove entries older than max_age"""
+        cutoff_time = datetime.now() - self.max_age
+        expired_urls = [url for url, timestamp in self.history.items() if timestamp < cutoff_time]
+        for url in expired_urls:
+            del self.history[url]
+    
+    def _auto_clean(self):
+        """Automatically clean entries when threshold is exceeded"""
+        if len(self.history) <= self.target_size:
+            return
+        
+        # Sort by timestamp (oldest first) and keep only the most recent target_size entries
+        sorted_entries = sorted(self.history.items(), key=lambda x: x[1], reverse=True)
+        
+        # Keep only the most recent entries
+        entries_to_keep = sorted_entries[:self.target_size]
+        
+        # Clear and rebuild with recent entries
+        self.history.clear()
+        for url, timestamp in entries_to_keep:
+            self.history[url] = timestamp
+        
+        logger.info(f"Auto-cleaned search history: kept {len(self.history)} most recent entries")
+    
+    def clear_session(self):
+        """Clear all history for new session"""
+        self.history.clear()
+    
+    def get_stats(self) -> Dict[str, int]:
+        """Get history statistics"""
+        self.cleanup_old_entries()
+        return {
+            "total_entries": len(self.history),
+            "auto_clean_threshold": self.auto_clean_threshold,
+            "target_size": self.target_size
+        }
+
+# Global search history manager with auto-clean at 45 entries, target 25
+search_history_manager = SearchHistoryManager(
+    max_age_minutes=30, 
+    auto_clean_threshold=45, 
+    target_size=25
+)
 last_search_time = 0
 
 # mood mapping with keywords for diverse search results
 MOOD_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
     "happy": {
         "english": ["upbeat", "cheerful", "energetic", "feel good", "party", "dance"],
-        "hindi": ["khushi", "energetic", "party", "dance", "celebration", "bollywood dance"],
+        "hindi": ["upbeat","bollywood dance", "energetic", "party", "dance", "celebration"],
         "bengali": ["anondo", "energetic", "dance", "celebration", "upbeat", "rabindra sangeet"],
     },
     "sad": {
@@ -81,9 +149,9 @@ def extract_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
-def get_youtube_results(query: str, max_results: int = 20) -> List[Dict[str, str]]:
+def get_youtube_results(query: str, max_results: int = 20, allow_duplicates: bool = False) -> List[Dict[str, str]]:
     """Scrape YouTube search page for video links with improved error handling"""
-    global last_search_time, search_history
+    global last_search_time
     
     # Rate limiting
     current_time = time.time()
@@ -159,9 +227,10 @@ def get_youtube_results(query: str, max_results: int = 20) -> List[Dict[str, str
                                 
                                 url = f"https://www.youtube.com/watch?v={video_id}"
                                 
-                                if url not in search_history:
+                                # Check for duplicates only if not allowing them
+                                if allow_duplicates or not search_history_manager.is_duplicate(url):
                                     results.append({"url": url, "title": title})
-                                    search_history.add(url)
+                                    search_history_manager.add_url(url)
                                     
                                 if len(results) >= max_results:
                                     break
@@ -185,9 +254,10 @@ def get_youtube_results(query: str, max_results: int = 20) -> List[Dict[str, str
                         title = link.get_text(strip=True) or "Untitled"
                         url = f"https://www.youtube.com/watch?v={video_id}"
                         
-                        if url not in search_history and len(title) > 3:
+                        # Check for duplicates only if not allowing them
+                        if (allow_duplicates or not search_history_manager.is_duplicate(url)) and len(title) > 3:
                             results.append({"url": url, "title": title})
-                            search_history.add(url)
+                            search_history_manager.add_url(url)
                             
                         if len(results) >= max_results:
                             break
@@ -224,58 +294,88 @@ def create_search_queries(mood: str, language: str, custom: str = "") -> List[st
         ]
     
     return base_queries + custom_queries
-# In music_manager.py
 
 def fetch_recommendations(queries: List[str], total: int = 20) -> List[Dict[str, str]]:
-    """Fetch video recommendations from multiple queries - ENHANCED VERSION"""
+    """Fetch video recommendations from multiple queries - ENHANCED VERSION with fallback"""
     accumulated: List[Dict[str, str]] = []
-    max_attempts = 3  # Number of retry attempts per query
-    min_per_query = 3  # Minimum results to fetch per query
+    max_attempts = 3
+    min_per_query = 3
     
     logger.info(f"Fetching up to {total} recommendations from {len(queries)} queries")
+    logger.info(f"Search history stats: {search_history_manager.get_stats()}")
     
+    # First pass: Try to get fresh results
     for query in queries:
         attempts = 0
         while attempts < max_attempts:
             try:
-                # Dynamically adjust per-query targets based on remaining needs
                 remaining = total - len(accumulated)
                 per_query = max(min_per_query, remaining // max(1, len(queries) - queries.index(query)))
                 
                 logger.info(f"Attempt {attempts + 1} for: {query} (target: {per_query} results)")
                 
-                batch_results = get_youtube_results(query, max_results=per_query)
+                batch_results = get_youtube_results(query, max_results=per_query, allow_duplicates=False)
                 if batch_results:
                     accumulated.extend(batch_results)
-                    break  # Success - move to next query
+                    break
                     
             except Exception as e:
                 logger.warning(f"Attempt {attempts + 1} failed: {str(e)}")
             
             attempts += 1
             if attempts < max_attempts:
-                time.sleep(2 ** attempts)  # Exponential backoff
+                time.sleep(2 ** attempts)
         
         if len(accumulated) >= total:
             break
     
-    # Enhanced deduplication
-    seen_urls = set()
+    # Fallback: If we don't have enough results, allow some duplicates
+    if len(accumulated) < total // 2:  # Less than 50% of target
+        logger.warning(f"Only got {len(accumulated)} results, trying fallback with duplicates allowed")
+        
+        # Clear some recent history to allow more results
+        search_history_manager.cleanup_old_entries()
+        
+        for query in queries[:3]:
+            try:
+                remaining = total - len(accumulated)
+                if remaining <= 0:
+                    break
+                    
+                fallback_results = get_youtube_results(
+                    query, 
+                    max_results=remaining, 
+                    allow_duplicates=True
+                )
+                accumulated.extend(fallback_results)
+                
+            except Exception as e:
+                logger.warning(f"Fallback search failed: {str(e)}")
+    
+    # Enhanced deduplication by video ID
+    seen_ids = set()
     unique_videos = []
     for video in accumulated:
-        vid = video["url"].split("v=")[-1][:11]  # Normalize YouTube IDs
-        if vid not in seen_urls:
-            seen_urls.add(vid)
+        vid_id = extract_video_id(video["url"])
+        if vid_id and vid_id not in seen_ids:
+            seen_ids.add(vid_id)
             unique_videos.append(video)
     
     # Final shuffle and trim
     random.shuffle(unique_videos)
-    return unique_videos[:total]
+    final_results = unique_videos[:total]
+    
+    logger.info(f"Returning {len(final_results)} unique recommendations")
+    return final_results
 
 def clear_search_history():
-    """Clear the search history"""
-    global search_history
-    search_history.clear()
+    """Clear the search history - useful for new sessions"""
+    search_history_manager.clear_session()
+    logger.info("Search history cleared")
+
+def get_search_history_stats() -> Dict[str, int]:
+    """Get search history statistics"""
+    return search_history_manager.get_stats()
 
 def get_mood_keywords(mood: str, language: str) -> List[str]:
     """Get mood keywords for a specific mood and language"""

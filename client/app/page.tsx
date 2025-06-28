@@ -1,274 +1,147 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
-  Camera,
-  Music,
-  Heart,
-  Smile,
-  Frown,
-  Volume2,
-  VolumeX,
-  Volume1,
-  X,
-  Settings,
+  Search,
+  Play,
+  Pause,
   SkipBack,
   SkipForward,
-  Shuffle,
-  Pause,
-  Play,
+  Volume2,
+  VolumeX,
+  Heart,
+  ListMusic,
+  Globe,
+  Smile,
+  ArrowRight,
 } from "lucide-react";
 import ReactPlayer from "react-player/youtube";
+import Image from "next/image";
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-interface VideoElement extends HTMLVideoElement {
-  srcObject: MediaStream | null;
-}
-
-interface Song {
-  url: string;
+type VideoResult = {
+  id: string;
   title: string;
-}
+  artist: string;
+  url: string;
+  thumbnail: string;
+  duration: string;
+  views: string;
+  published: string;
+};
 
-interface EmotionResponse {
-  emotion: string;
-  confidence: number;
-  deepface_available: boolean;
-}
+type Language = "hindi" | "english" | "bengali" | "punjabi" | "tamil";
+type ContentType = "trending" | "new-releases" | "top-hits";
 
-interface MusicResponse {
-  videos: Song[];
-  total_count: number;
-  mood: string;
-  language: string;
-}
-
-const MOOD_OPTIONS = [
-  "happy",
-  "sad",
-  "angry",
-  "fear",
-  "surprise",
-  "disgust",
-  "neutral",
-];
-
-export default function MoodMusicPlayer() {
-  const videoRef = useRef<VideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const playerRef = useRef<ReactPlayer>(null);
-  const [mood, setMood] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState<number>(0);
-  const [music, setMusic] = useState<Song[]>([]);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
-  const [loading, setLoading] = useState<boolean>(false);
+export default function MusicApp() {
+  const router = useRouter();
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>("hindi");
+  const [contentType, setContentType] = useState<ContentType>("trending");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [videos, setVideos] = useState<VideoResult[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [language, setLanguage] = useState<string>("english");
-  const [preferences, setPreferences] = useState<string>("");
-  const [webcamReady, setWebcamReady] = useState<boolean>(false);
-  const [playlistSize, setPlaylistSize] = useState<number>(10);
-  const [manualMood, setManualMood] = useState<string>("");
-  const [useManualMood, setUseManualMood] = useState<boolean>(false);
-  const [played, setPlayed] = useState<number>(0);
-  const [playedSeconds, setPlayedSeconds] = useState<number>(0);
-  const [duration, setDuration] = useState<number>(0);
-  const [seeking, setSeeking] = useState<boolean>(false);
-  const [volume, setVolume] = useState<number>(0.8); // Default volume (80%)
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  // const [showVolumeSlider, setShowVolumeSlider] = useState<boolean>(false);
+  const [currentVideo, setCurrentVideo] = useState<VideoResult | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(70);
+  const [isMuted, setIsMuted] = useState(false);
+  const [played, setPlayed] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [seeking, setSeeking] = useState(false);
+  const playerRef = useRef<ReactPlayer>(null);
+  const languages = [
+    { id: "hindi", name: "Hindi", flag: "🇮🇳" },
+    { id: "english", name: "English", flag: "🇺🇸" },
+    { id: "bengali", name: "Bengali", flag: "🇧🇩" },
+    { id: "punjabi", name: "Punjabi", flag: "🇮🇳" },
+    { id: "tamil", name: "Tamil", flag: "🇮🇳" },
+  ];
 
-  // Start webcam
-  useEffect(() => {
-    const startWebcam = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: "user",
-          },
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            setWebcamReady(true);
-          };
-        }
-      } catch (err) {
-        setError(
-          "Could not access webcam. Please ensure camera permissions are granted."
-        );
-        console.error("Webcam error:", err);
-      }
+  const contentTypes = [
+    { id: "trending", name: "Trending Now" },
+    { id: "new-releases", name: "New Releases" },
+    { id: "top-hits", name: "Top Hits" },
+  ];
+
+  const generateSearchQuery = useCallback(() => {
+    const languageMap = {
+      hindi: "hindi songs",
+      english: "english songs",
+      bengali: "bengali songs",
+      punjabi: "punjabi songs",
+      tamil: "tamil songs",
     };
 
-    startWebcam();
-    return () => {
-      if (videoRef.current?.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach((track) => track.stop());
-      }
+    const typeMap = {
+      trending: "trending now",
+      "new-releases": "new releases",
+      "top-hits": "top hits",
     };
-  }, []);
 
-  const captureAndAnalyze = async () => {
-    if (useManualMood && manualMood) {
-      setMood(manualMood);
-      setConfidence(100);
-      await fetchMusic(manualMood);
-      return;
-    }
+    return `${languageMap[selectedLanguage]} ${typeMap[contentType]}`;
+  }, [selectedLanguage, contentType]);
 
-    if (!webcamReady) {
-      setError("Webcam is not ready. Please wait a moment and try again.");
-      return;
-    }
-
+  const fetchVideos = async (query: string) => {
     setLoading(true);
     setError(null);
-
     try {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-
-      if (!canvas || !video) {
-        throw new Error("Video elements not initialized");
-      }
-
-      if (!video.videoWidth || !video.videoHeight) {
-        throw new Error("Video not ready. Please wait and try again.");
-      }
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        throw new Error("Could not get canvas context");
-      }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const imageData = canvas.toDataURL("image/jpeg", 0.8);
-
-      const moodResponse = await fetch(
-        `${API_URL}/detect-mood`,
+      const res = await fetch(
+        `/api/youtube-search?query=${encodeURIComponent(
+          query
+        )}&t=${Date.now()}`,
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            image_data: imageData,
-            language: language,
-            custom_preferences: preferences,
-            max_results: playlistSize,
-          }),
+          cache: "no-store",
         }
       );
 
-      if (!moodResponse.ok) {
-        throw new Error("Failed to detect mood");
+      if (!res.ok) {
+        throw new Error(`Failed to fetch: ${res.status}`);
       }
 
-      const moodData: EmotionResponse = await moodResponse.json();
-      setMood(moodData.emotion);
-      setConfidence(moodData.confidence);
-
-      await fetchMusic(moodData.emotion);
+      const { videos } = await res.json();
+      if (!videos || videos.length === 0) {
+        throw new Error("No videos found");
+      }
+      setVideos(videos);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to analyze mood. Please try again."
-      );
-      console.error("Capture error:", err);
+      console.error("Fetch error:", err);
+      setError(err instanceof Error ? err.message : "Failed to load videos");
+      setVideos([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMusic = async (moodToUse: string) => {
-    try {
-      const imageData = canvasRef.current?.toDataURL("image/jpeg", 0.8) || "";
+  useEffect(() => {
+    if (!searchQuery) {
+      const query = generateSearchQuery();
+      fetchVideos(query);
+    }
+  }, [selectedLanguage, contentType, searchQuery, generateSearchQuery]);
 
-      const response = await fetch(
-        `${API_URL}/get-music`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            image_data: imageData,
-            language: language,
-            custom_preferences: preferences,
-            max_results: playlistSize,
-            manual_mood: useManualMood ? moodToUse : undefined,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.detail || "Failed to get music recommendations"
-        );
-      }
-
-      const data: MusicResponse = await response.json();
-      setMusic(data.videos);
-      setCurrentIndex(0);
-      setIsPlaying(true);
-      setPlayed(0);
-      setPlayedSeconds(0);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to fetch music recommendations"
-      );
-      console.error("Music fetch error:", err);
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      fetchVideos(searchQuery);
     }
   };
 
-  const getMoodIcon = () => {
-    if (!mood) return <Heart className="w-6 h-6 text-pink-400" />;
-
-    const moodLower = mood.toLowerCase();
-    if (moodLower.includes("happy")) {
-      return <Smile className="w-6 h-6 text-yellow-400" />;
-    } else if (moodLower.includes("sad")) {
-      return <Frown className="w-6 h-6 text-blue-400" />;
-    }
-    return <Heart className="w-6 h-6 text-pink-400" />;
-  };
-
-  const clearResults = () => {
-    setMood(null);
-    setMusic([]);
-    setError(null);
-    setConfidence(0);
-  };
-
-  const shuffleMusic = () => {
-    const shuffled = [...music].sort(() => Math.random() - 0.5);
-    setMusic(shuffled);
-    setCurrentIndex(0);
+  const playVideo = (video: VideoResult) => {
+    setCurrentVideo(video);
     setIsPlaying(true);
   };
 
-  const handlePrevious = () => {
-    setCurrentIndex((prev) => (prev > 0 ? prev - 1 : music.length - 1));
-    setIsPlaying(true);
-    setPlayed(0);
-    setPlayedSeconds(0);
+  const togglePlayPause = () => {
+    setIsPlaying(!isPlaying);
   };
 
-  const handleNext = () => {
-    setCurrentIndex((prev) => (prev + 1) % music.length);
-    setIsPlaying(true);
-    setPlayed(0);
-    setPlayedSeconds(0);
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+  };
+
+  const changeVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseInt(e.target.value);
+    setVolume(newVolume);
+    setIsMuted(newVolume === 0);
   };
 
   const handleProgress = (state: {
@@ -279,7 +152,6 @@ export default function MoodMusicPlayer() {
   }) => {
     if (!seeking) {
       setPlayed(state.played);
-      setPlayedSeconds(state.playedSeconds);
     }
   };
 
@@ -295,419 +167,358 @@ export default function MoodMusicPlayer() {
     setSeeking(true);
   };
 
-  const handleSeekMouseUp = (e: React.MouseEvent<HTMLInputElement>) => {
+  const handleSeekMouseUp = () => {
     setSeeking(false);
-    if (playerRef.current) {
-      playerRef.current.seekTo(parseFloat(e.currentTarget.value));
-    }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value);
-    setVolume(newVolume);
-    setIsMuted(newVolume === 0);
-  };
-
-  const toggleMute = () => {
-    if (isMuted) {
-      // Unmute - restore previous volume if it was 0
-      setVolume(volume === 0 ? 0.8 : volume);
-    } else {
-      // Mute
-      setVolume(0);
-    }
-    setIsMuted(!isMuted);
+    playerRef.current?.seekTo(played);
   };
 
   const formatTime = (seconds: number) => {
     const date = new Date(seconds * 1000);
+    const hh = date.getUTCHours();
     const mm = date.getUTCMinutes();
     const ss = date.getUTCSeconds().toString().padStart(2, "0");
+
+    if (hh) {
+      return `${hh}:${mm.toString().padStart(2, "0")}:${ss}`;
+    }
     return `${mm}:${ss}`;
   };
 
-  const getVolumeIcon = () => {
-    if (isMuted || volume === 0) {
-      return <VolumeX className="w-5 h-5" />;
-    } else if (volume < 0.5) {
-      return <Volume1 className="w-5 h-5" />;
-    }
-    return <Volume2 className="w-5 h-5" />;
+  const playNext = () => {
+    if (!currentVideo || videos.length === 0) return;
+
+    const currentIndex = videos.findIndex((v) => v.id === currentVideo.id);
+    const nextIndex = (currentIndex + 1) % videos.length;
+    setCurrentVideo(videos[nextIndex]);
+    setIsPlaying(true);
+  };
+
+  const playPrevious = () => {
+    if (!currentVideo || videos.length === 0) return;
+
+    const currentIndex = videos.findIndex((v) => v.id === currentVideo.id);
+    const prevIndex = (currentIndex - 1 + videos.length) % videos.length;
+    setCurrentVideo(videos[prevIndex]);
+    setIsPlaying(true);
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2 flex items-center justify-center gap-3">
-            <Music className="w-10 h-10 text-purple-400" />
-            Mood Music Player
-          </h1>
-          <p className="text-gray-400 text-lg">
-            AI-powered mood detection and music recommendations
-          </p>
-        </div>
-
-        {/* Main Content */}
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Webcam Section */}
-          <div className="lg:col-span-2 bg-gray-800 rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <Camera className="w-5 h-5" />
-              Camera
-            </h2>
-
-            <div
-              className="relative rounded-lg overflow-hidden bg-black mb-4"
-              style={{ aspectRatio: "4/3" }}
-            >
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-              {!webcamReady && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-700">
-                  <div className="text-center text-gray-400">
-                    <Camera className="w-12 h-12 mx-auto mb-2" />
-                    <p>Loading camera...</p>
-                  </div>
-                </div>
-              )}
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 text-white">
+      {/* Header */}
+      <header className="bg-black/30 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="bg-pink-600 p-2 rounded-lg">
+              <Play className="h-6 w-6" />
             </div>
-
-            <canvas ref={canvasRef} style={{ display: "none" }} />
-
-            <button
-              onClick={captureAndAnalyze}
-              disabled={
-                loading ||
-                (!useManualMood && !webcamReady) ||
-                (useManualMood && !manualMood)
-              }
-              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Camera className="w-5 h-5" />
-                  {useManualMood ? "Get Music" : "Capture & Analyze Mood"}
-                </>
-              )}
-            </button>
+            <h1 className="text-xl font-bold">MusicStream</h1>
           </div>
 
-          {/* Settings Section */}
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Settings
-            </h2>
+          <form onSubmit={handleSearch} className="flex-1 w-full md:max-w-md">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search songs, artists..."
+                className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm md:text-base"
+              />
+            </div>
+          </form>
 
-            <div className="space-y-4">
-              {/* Manual Mood Toggle */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="manualMoodToggle"
-                  checked={useManualMood}
-                  onChange={(e) => setUseManualMood(e.target.checked)}
-                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                />
-                <label
-                  htmlFor="manualMoodToggle"
-                  className="text-sm font-medium text-gray-300"
-                >
-                  Select Mood Manually
-                </label>
+          <div className="flex items-center space-x-4">
+            <button className="p-2 rounded-full hover:bg-white/10">
+              <Heart className="h-5 w-5" />
+            </button>
+            <button className="p-2 rounded-full hover:bg-white/10">
+              <ListMusic className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Mood Recommendation Banner */}
+      <div className="container mx-auto px-4 py-4">
+        <div
+          className="bg-gradient-to-r from-pink-600 to-purple-600 rounded-xl p-4 mb-6 cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => router.push("/mood")}
+        >
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center space-x-3">
+              <Smile className="h-8 w-8 text-yellow-300" />
+              <div>
+                <h3 className="font-semibold text-lg">
+                  Switch to mood-based recommendations?
+                </h3>
+                <p className="text-sm text-white/80">
+                  Discover music that matches your current vibe
+                </p>
               </div>
+            </div>
+            <div className="bg-white text-purple-600 hover:bg-gray-100 px-6 py-2 rounded-full font-medium transition-colors flex items-center space-x-2 whitespace-nowrap">
+              <span>Click Here</span>
+              <ArrowRight className="h-4 w-4" />
+            </div>
+          </div>
+        </div>
+      </div>
 
-              {/* Manual Mood Selection */}
-              {useManualMood && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Select Mood
-                  </label>
-                  <select
-                    value={manualMood}
-                    onChange={(e) => setManualMood(e.target.value)}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="">Select a mood</option>
-                    {MOOD_OPTIONS.map((mood) => (
-                      <option key={mood} value={mood}>
-                        {mood.charAt(0).toUpperCase() + mood.slice(1)}
-                      </option>
-                    ))}
-                  </select>
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-6 pb-24">
+        {/* Language Selector */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4 flex items-center">
+            <Globe className="mr-2" /> Select Language
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {languages.map((lang) => (
+              <button
+                key={lang.id}
+                onClick={() => setSelectedLanguage(lang.id as Language)}
+                className={`flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full transition-all text-sm ${
+                  selectedLanguage === lang.id
+                    ? "bg-pink-600 text-white"
+                    : "bg-white/10 hover:bg-white/20"
+                }`}
+              >
+                <span className="mr-2">{lang.flag}</span>
+                {lang.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content Type Selector */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Browse</h2>
+          <div className="flex flex-wrap gap-2">
+            {contentTypes.map((type) => (
+              <button
+                key={type.id}
+                onClick={() => setContentType(type.id as ContentType)}
+                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-full transition-all text-sm ${
+                  contentType === type.id
+                    ? "bg-pink-600 text-white"
+                    : "bg-white/10 hover:bg-white/20"
+                }`}
+              >
+                {type.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Video Results */}
+        <div>
+          <h2 className="text-xl font-semibold mb-4">
+            {searchQuery
+              ? `Results for "${searchQuery}"`
+              : `${contentTypes.find((t) => t.id === contentType)?.name} in ${
+                  languages.find((l) => l.id === selectedLanguage)?.name
+                }`}
+          </h2>
+
+          {error && (
+            <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 mb-6">
+              <p className="text-red-200">{error}</p>
+              <button
+                onClick={() =>
+                  fetchVideos(searchQuery || generateSearchQuery())
+                }
+                className="mt-2 bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full text-sm"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {[...Array(10)].map((_, i) => (
+                <div
+                  key={i}
+                  className="bg-white/10 rounded-lg overflow-hidden animate-pulse"
+                >
+                  <div className="aspect-square bg-white/20 w-full"></div>
+                  <div className="p-3 space-y-2">
+                    <div className="h-4 bg-white/20 rounded w-3/4"></div>
+                    <div className="h-3 bg-white/20 rounded w-1/2"></div>
+                  </div>
                 </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Language
-                </label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              ))}
+            </div>
+          ) : videos.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {videos.map((video) => (
+                <div
+                  key={video.id}
+                  className="bg-white/5 rounded-lg overflow-hidden hover:bg-white/10 transition-all cursor-pointer group"
+                  onClick={() => playVideo(video)}
                 >
-                  <option value="english">English</option>
-                  <option value="hindi">Hindi</option>
-                  <option value="bengali">Bengali</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Music Preferences
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., rock, jazz, pop"
-                  value={preferences}
-                  onChange={(e) => setPreferences(e.target.value)}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Playlist Size
-                </label>
-                <select
-                  value={playlistSize}
-                  onChange={(e) => setPlaylistSize(Number(e.target.value))}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value={5}>5 songs</option>
-                  <option value={10}>10 songs</option>
-                  <option value={15}>15 songs</option>
-                  <option value={20}>20 songs</option>
-                </select>
-              </div>
-
-              {(mood || error) && (
+                  <div className="relative aspect-square">
+                    <Image
+                      src={video.thumbnail}
+                      alt={video.title}
+                      fill
+                      className="object-cover"
+                      loading="lazy"
+                      unoptimized
+                    />
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Play className="h-10 w-10 text-white" />
+                    </div>
+                    <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
+                      {video.duration}
+                    </div>
+                  </div>
+                  <div className="p-3">
+                    <h3 className="font-medium text-sm line-clamp-2">
+                      {video.title}
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1 line-clamp-1">
+                      {video.artist}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 line-clamp-1">
+                      {video.views} • {video.published}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-400">
+              <Search className="w-12 h-12 mx-auto mb-4" />
+              <p className="text-lg">No results found</p>
+              {searchQuery && (
                 <button
-                  onClick={clearResults}
-                  className="w-full bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  onClick={() => setSearchQuery("")}
+                  className="mt-4 bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full text-sm"
                 >
-                  <X className="w-4 h-4" />
-                  Clear Results
+                  Show Trending
                 </button>
               )}
             </div>
-          </div>
+          )}
         </div>
+      </main>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mt-6 bg-red-900/50 border border-red-500 rounded-lg p-4">
-            <div className="flex items-start gap-2 text-red-200">
-              <X className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div>
-                <span className="font-medium">Error: </span>
-                <span>{error}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results Section */}
-        {mood && (
-          <div className="mt-6 space-y-6">
-            {/* Mood Display */}
-            <div className="bg-gray-800 rounded-lg p-6">
-              <div className="flex items-center gap-4 mb-4">
-                {getMoodIcon()}
-                <div>
-                  <h2 className="text-2xl font-bold capitalize">
-                    Mood: {mood}
-                  </h2>
-                  {confidence > 0 && (
-                    <p className="text-gray-400">
-                      Confidence: {Math.round(confidence)}%{" "}
-                      {useManualMood && "(Manual Selection)"}
-                    </p>
-                  )}
-                </div>
-              </div>
+      {/* Player */}
+      {currentVideo && (
+        <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-purple-900 to-indigo-900 border-t border-white/10 z-50">
+          <div className="container mx-auto px-4 py-3">
+            {/* Progress bar */}
+            <div className="w-full mb-2 flex items-center gap-2 text-xs text-gray-300">
+              <span className="w-10">{formatTime(played * duration)}</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step="any"
+                value={played}
+                onChange={handleSeekChange}
+                onMouseDown={handleSeekMouseDown}
+                onMouseUp={handleSeekMouseUp}
+                className="flex-1 h-1 bg-white/20 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-pink-500"
+              />
+              <span className="w-10">{formatTime(duration)}</span>
             </div>
 
-            {/* Music Player */}
-            {music.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-6">
-                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  <Volume2 className="w-5 h-5" />
-                  Now Playing:{" "}
-                  {music[currentIndex]?.title || `Song ${currentIndex + 1}`}
-                </h2>
-
-                <div className="mb-4">
-                  <ReactPlayer
-                    ref={playerRef}
-                    url={music[currentIndex]?.url}
-                    playing={isPlaying}
-                    controls={false}
-                    width="100%"
-                    height="360px"
-                    volume={isMuted ? 0 : volume}
-                    onProgress={handleProgress}
-                    onDuration={handleDuration}
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              {/* Song Info */}
+              <div className="flex items-center flex-1 min-w-0">
+                <div className="relative h-12 w-12 rounded-md mr-3 flex-shrink-0">
+                  <Image
+                    src={currentVideo.thumbnail}
+                    alt={currentVideo.title}
+                    fill
+                    className="object-cover rounded-md"
+                    unoptimized
                   />
-
-                  {/* Seek Bar */}
-                  <div className="mt-2 flex items-center gap-3">
-                    <span className="text-sm text-gray-400 w-10 text-right">
-                      {formatTime(playedSeconds)}
-                    </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={0.999999}
-                      step="any"
-                      value={played}
-                      onChange={handleSeekChange}
-                      onMouseDown={handleSeekMouseDown}
-                      onMouseUp={handleSeekMouseUp}
-                      className="flex-1 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <span className="text-sm text-gray-400 w-10">
-                      {formatTime(duration)}
-                    </span>
-                  </div>
                 </div>
-
-                {/* Player Controls */}
-                <div className="flex justify-between items-center mt-4">
-                  <div className="flex items-center gap-2">
-                    {/* Volume Control */}
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={toggleMute}
-                        className="p-1.5 text-gray-300 hover:text-white transition-colors"
-                        aria-label={isMuted ? "Unmute" : "Mute"}
-                      >
-                        {getVolumeIcon()}
-                      </button>
-
-                      <div className="flex items-center gap-2 w-32">
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.01}
-                          value={volume}
-                          onChange={handleVolumeChange}
-                          className="w-full h-1.5 bg-gray-600 rounded-full appearance-none cursor-pointer 
-                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 
-                  [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                        />
-                        <span className="text-xs text-gray-400 w-8 text-right">
-                          {Math.round(volume * 100)}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4">
-                    <button
-                      onClick={handlePrevious}
-                      className="p-2 bg-gray-700 hover:bg-gray-600 rounded-full"
-                      aria-label="Previous song"
-                    >
-                      <SkipBack className="w-6 h-6 text-white" />
-                    </button>
-                    <button
-                      onClick={() => setIsPlaying(!isPlaying)}
-                      className="p-2 bg-gray-700 hover:bg-gray-600 rounded-full"
-                      aria-label={isPlaying ? "Pause" : "Play"}
-                    >
-                      {isPlaying ? (
-                        <Pause className="w-6 h-6 text-white" />
-                      ) : (
-                        <Play className="w-6 h-6 text-white" />
-                      )}
-                    </button>
-                    <button
-                      onClick={handleNext}
-                      className="p-2 bg-gray-700 hover:bg-gray-600 rounded-full"
-                      aria-label="Next song"
-                    >
-                      <SkipForward className="w-6 h-6 text-white" />
-                    </button>
-                    <button
-                      onClick={shuffleMusic}
-                      className="p-2 bg-gray-700 hover:bg-gray-600 rounded-full"
-                      aria-label="Shuffle playlist"
-                    >
-                      <Shuffle className="w-6 h-6 text-white" />
-                    </button>
-                  </div>
+                <div className="min-w-0">
+                  <h3 className="font-medium text-sm line-clamp-1">
+                    {currentVideo.title}
+                  </h3>
+                  <p className="text-xs text-gray-400 line-clamp-1">
+                    {currentVideo.artist}
+                  </p>
                 </div>
+                <button className="ml-2 text-pink-400 hover:text-pink-300 flex-shrink-0">
+                  <Heart className="h-4 w-4" />
+                </button>
               </div>
-            )}
 
-            {/* Playlist */}
-            {music.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-6">
-                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  <Music className="w-5 h-5" />
-                  Playlist ({music.length} songs)
-                </h2>
-
-                <div className="space-y-3">
-                  {music.map((song, index) => (
-                    <div
-                      key={index}
-                      className={`bg-gray-700 rounded-lg p-4 hover:bg-gray-600 transition-colors cursor-pointer ${
-                        index === currentIndex ? "ring-2 ring-purple-500" : ""
-                      }`}
-                      onClick={() => {
-                        setCurrentIndex(index);
-                        setIsPlaying(true);
-                        setPlayed(0);
-                        setPlayedSeconds(0);
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                            index === currentIndex
-                              ? "bg-purple-600"
-                              : "bg-gray-600"
-                          }`}
-                        >
-                          {index === currentIndex && isPlaying ? (
-                            <Volume2 className="w-5 h-5 text-white" />
-                          ) : (
-                            <Music className="w-5 h-5 text-white" />
-                          )}
-                        </div>
-                        <div>
-                          <h3 className="text-white font-medium">
-                            {song.title || `Song ${index + 1}`}
-                          </h3>
-                          <p className="text-gray-400 text-sm">
-                            {index === currentIndex ? "Now Playing" : ""}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {/* Player Controls */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={playPrevious}
+                  className="text-gray-300 hover:text-white p-1"
+                >
+                  <SkipBack className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={togglePlayPause}
+                  className="bg-white text-black p-2 rounded-full hover:bg-gray-200 flex items-center justify-center"
+                >
+                  {isPlaying ? (
+                    <Pause className="h-5 w-5" />
+                  ) : (
+                    <Play className="h-5 w-5" />
+                  )}
+                </button>
+                <button
+                  onClick={playNext}
+                  className="text-gray-300 hover:text-white p-1"
+                >
+                  <SkipForward className="h-5 w-5" />
+                </button>
               </div>
-            )}
+
+              {/* Volume Controls */}
+              <div className="hidden sm:flex items-center space-x-2">
+                <button
+                  onClick={toggleMute}
+                  className="text-gray-300 hover:text-white"
+                >
+                  {isMuted || volume === 0 ? (
+                    <VolumeX className="h-5 w-5" />
+                  ) : (
+                    <Volume2 className="h-5 w-5" />
+                  )}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={volume}
+                  onChange={changeVolume}
+                  className="w-20 accent-pink-500"
+                />
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* React Player (hidden but needed for playback) */}
+          <ReactPlayer
+            ref={playerRef}
+            url={`https://www.youtube.com/watch?v=${currentVideo.id}`}
+            playing={isPlaying}
+            volume={isMuted ? 0 : volume / 100}
+            onProgress={handleProgress}
+            onDuration={handleDuration}
+            onEnded={playNext}
+            width="0"
+            height="0"
+            config={{
+              playerVars: {
+                modestbranding: 1,
+                rel: 0,
+              },
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
