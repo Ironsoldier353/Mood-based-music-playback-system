@@ -1,13 +1,11 @@
-
-// app/api/like/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
   try {
+    // Authentication check
     const { userId } = await auth();
-    
     if (!userId) {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -15,6 +13,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate request body
     const body = await req.json();
     const { videoId, title, artist, url, thumbnail, duration } = body;
     
@@ -25,32 +24,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Find or create user
-    let user = await prisma.user.findUnique({
-      where: { clerkId: userId }
+    // Get user
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: { id: true }
     });
 
     if (!user) {
-      user = await prisma.user.create({
-        data: {
-          clerkId: userId,
-          fullName: "New User",
-        }
-      });
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
     }
 
+    // Check if already liked
     const existingLike = await prisma.likedSong.findFirst({ 
       where: { 
         userId: user.id,
         videoId 
-      } 
+      }
     });
 
+    // Handle like/unlike
     if (existingLike) {
-      await prisma.likedSong.delete({ where: { id: existingLike.id } });
-      return NextResponse.json({ liked: false, action: "removed" });
+      await prisma.likedSong.delete({ 
+        where: { id: existingLike.id } 
+      });
+      return NextResponse.json({ 
+        success: true,
+        liked: false
+      });
     } else {
-      await prisma.likedSong.create({
+      const newLike = await prisma.likedSong.create({
         data: { 
           userId: user.id, 
           videoId, 
@@ -61,13 +66,18 @@ export async function POST(req: NextRequest) {
           duration: duration || "0:00"
         }
       });
-      return NextResponse.json({ liked: true, action: "added" });
+      
+      return NextResponse.json({ 
+        success: true,
+        liked: true,
+        song: newLike
+      });
     }
 
   } catch (error) {
-    console.error('Error in like route:', error);
+    console.error('Error:', error);
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: "Something went wrong" },
       { status: 500 }
     );
   }

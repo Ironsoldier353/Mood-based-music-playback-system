@@ -15,6 +15,7 @@ import {
   Smile,
   ArrowRight,
   X,
+  Shuffle,
 } from "lucide-react";
 import ReactPlayer from "react-player/youtube";
 import Image from "next/image";
@@ -54,6 +55,8 @@ export default function MusicApp() {
   const [likedSongs, setLikedSongs] = useState<VideoResult[]>([]);
   const [librarySearchQuery, setLibrarySearchQuery] = useState("");
   const [initialLoad, setInitialLoad] = useState(true);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isPlayingFromLibrary, setIsPlayingFromLibrary] = useState(false);
   const playerRef = useRef<ReactPlayer>(null);
 
   const languages = [
@@ -92,7 +95,7 @@ export default function MusicApp() {
   useEffect(() => {
     const loadLikedSongs = async () => {
       try {
-        const res = await fetch('/api/liked-songs');
+        const res = await fetch("/api/liked-songs");
         if (res.ok) {
           const data = await res.json();
           setLikedSongs(data);
@@ -111,7 +114,7 @@ export default function MusicApp() {
   // Update liked status when current video changes
   useEffect(() => {
     if (currentVideo) {
-      const isLiked = likedSongs.some(song => song.id === currentVideo.id);
+      const isLiked = likedSongs.some((song) => song.id === currentVideo.id);
       setLiked(isLiked);
     }
   }, [currentVideo, likedSongs]);
@@ -121,7 +124,9 @@ export default function MusicApp() {
     setError(null);
     try {
       const res = await fetch(
-        `/api/youtube-search?query=${encodeURIComponent(query)}&t=${Date.now()}`,
+        `/api/youtube-search?query=${encodeURIComponent(
+          query
+        )}&t=${Date.now()}`,
         { cache: "no-store" }
       );
 
@@ -155,11 +160,12 @@ export default function MusicApp() {
     }
   };
 
-  const playVideo = (video: VideoResult) => {
+  const playVideo = (video: VideoResult, fromLibrary = false) => {
     setCurrentVideo(video);
     setIsPlaying(true);
-    const isLiked = likedSongs.some(song => song.id === video.id);
+    const isLiked = likedSongs.some((song) => song.id === video.id);
     setLiked(isLiked);
+    setIsPlayingFromLibrary(fromLibrary);
   };
 
   const togglePlayPause = () => {
@@ -217,27 +223,47 @@ export default function MusicApp() {
   };
 
   const playNext = () => {
-    if (!currentVideo || videos.length === 0) return;
+    if (!currentVideo) return;
 
-    const currentIndex = videos.findIndex((v) => v.id === currentVideo.id);
-    const nextIndex = (currentIndex + 1) % videos.length;
-    setCurrentVideo(videos[nextIndex]);
-    setIsPlaying(true);
+    if (isPlayingFromLibrary && likedSongs.length > 0) {
+      const currentIndex = likedSongs.findIndex(
+        (v) => v.id === currentVideo.id
+      );
+      const nextIndex = (currentIndex + 1) % likedSongs.length;
+      setCurrentVideo(likedSongs[nextIndex]);
+      setIsPlaying(true);
+    } else if (videos.length > 0) {
+      const currentIndex = videos.findIndex((v) => v.id === currentVideo.id);
+      const nextIndex = (currentIndex + 1) % videos.length;
+      setCurrentVideo(videos[nextIndex]);
+      setIsPlaying(true);
+    }
   };
 
   const playPrevious = () => {
-    if (!currentVideo || videos.length === 0) return;
+    if (!currentVideo) return;
 
-    const currentIndex = videos.findIndex((v) => v.id === currentVideo.id);
-    const prevIndex = (currentIndex - 1 + videos.length) % videos.length;
-    setCurrentVideo(videos[prevIndex]);
-    setIsPlaying(true);
+    if (isPlayingFromLibrary && likedSongs.length > 0) {
+      const currentIndex = likedSongs.findIndex(
+        (v) => v.id === currentVideo.id
+      );
+      const prevIndex =
+        (currentIndex - 1 + likedSongs.length) % likedSongs.length;
+      setCurrentVideo(likedSongs[prevIndex]);
+      setIsPlaying(true);
+    } else if (videos.length > 0) {
+      const currentIndex = videos.findIndex((v) => v.id === currentVideo.id);
+      const prevIndex = (currentIndex - 1 + videos.length) % videos.length;
+      setCurrentVideo(videos[prevIndex]);
+      setIsPlaying(true);
+    }
   };
 
   const toggleLike = async (video?: VideoResult) => {
     const videoToLike = video || currentVideo;
     if (!videoToLike) return;
 
+    setIsLiking(true);
     try {
       const res = await fetch("/api/like", {
         method: "POST",
@@ -248,16 +274,16 @@ export default function MusicApp() {
           artist: videoToLike.artist,
           url: videoToLike.url,
           thumbnail: videoToLike.thumbnail,
-          duration: videoToLike.duration
+          duration: videoToLike.duration,
         }),
       });
 
       if (!res.ok) throw new Error("Failed to toggle like");
 
       const data = await res.json();
-      
+
       // Update liked songs list
-      const songsRes = await fetch('/api/liked-songs');
+      const songsRes = await fetch("/api/liked-songs");
       if (songsRes.ok) {
         const updatedSongs = await songsRes.json();
         setLikedSongs(updatedSongs);
@@ -269,84 +295,194 @@ export default function MusicApp() {
       }
 
       // Show feedback to user
-      toast.success(data.liked ? "Added to liked songs" : "Removed from liked songs");
+      toast.success(
+        data.liked ? "Added to liked songs" : "Removed from liked songs"
+      );
     } catch (error) {
       console.error("Error toggling like:", error);
       toast.error("Failed to update liked songs");
+    } finally {
+      setIsLiking(false);
     }
   };
 
-  const filteredLikedSongs = likedSongs.filter(song =>
-    song.title.toLowerCase().includes(librarySearchQuery.toLowerCase()) ||
-    song.artist.toLowerCase().includes(librarySearchQuery.toLowerCase())
+  const playAllLikedSongs = (shuffle = false) => {
+    if (likedSongs.length === 0) {
+      toast.error("No songs in your library");
+      return;
+    }
+
+    let songsToPlay = [...likedSongs];
+    if (shuffle) {
+      songsToPlay = songsToPlay.sort(() => Math.random() - 0.5);
+    }
+
+    setCurrentVideo(songsToPlay[0]);
+    setIsPlaying(true);
+    setIsPlayingFromLibrary(true);
+    setShowLikedLibrary(false);
+    toast.success(`Playing ${shuffle ? "shuffled" : "all"} liked songs`);
+  };
+
+  const filteredLikedSongs = likedSongs.filter(
+    (song) =>
+      song.title.toLowerCase().includes(librarySearchQuery.toLowerCase()) ||
+      song.artist.toLowerCase().includes(librarySearchQuery.toLowerCase())
   );
 
+  // Close sidebar when clicking outside or pressing escape
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showLikedLibrary) {
+        setShowLikedLibrary(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [showLikedLibrary]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 text-white relative">
       {/* Header */}
       <header className="bg-black/30 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="bg-pink-600 p-2 rounded-lg">
-              <Play className="h-6 w-6" />
+        <div className="container mx-auto px-4">
+          {/* Mobile Header */}
+          <div className="flex items-center justify-between h-16 md:hidden">
+            <div className="flex items-center space-x-2">
+              <div className="bg-pink-600 p-1.5 rounded-lg">
+                <Play className="h-4 w-4" />
+              </div>
+              <h1 className="text-lg font-bold">MusicStream</h1>
             </div>
-            <h1 className="text-xl font-bold">MusicStream</h1>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowLikedLibrary(!showLikedLibrary)}
+                className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
+                  showLikedLibrary
+                    ? "bg-pink-600/30 text-pink-400"
+                    : "text-gray-400"
+                }`}
+              >
+                <ListMusic className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleSearch} className="flex-1 w-full md:max-w-md">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search songs, artists..."
-                className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm md:text-base"
-              />
-            </div>
-          </form>
+          {/* Mobile Search Bar */}
+          <div className="pb-4 md:hidden">
+            <form onSubmit={handleSearch}>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search songs, artists..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+              </div>
+            </form>
+          </div>
 
-          <div className="flex items-center space-x-4">
-            <button 
-              onClick={() => toggleLike()} 
-              className={`p-2 rounded-full hover:bg-white/10 ${liked ? 'text-pink-400' : 'text-gray-400'}`}
-              disabled={!currentVideo}
-            >
-              <Heart className={`h-5 w-5 ${liked ? "fill-pink-400" : ""}`} />
-            </button>
-  
-            <button 
-              onClick={() => setShowLikedLibrary(!showLikedLibrary)}
-              className={`p-2 rounded-full hover:bg-white/10 ${showLikedLibrary ? 'bg-pink-600/30 text-pink-400' : 'text-gray-400'}`}
-            >
-              <ListMusic className="h-5 w-5" />
-            </button>
+          {/* Desktop Header */}
+          <div className="hidden md:flex items-center justify-between h-16">
+            <div className="flex items-center space-x-3">
+              <div className="bg-pink-600 p-2 rounded-lg">
+                <Play className="h-6 w-6" />
+              </div>
+              <h1 className="text-xl font-bold">MusicStream</h1>
+            </div>
+
+            <form onSubmit={handleSearch} className="flex-1 max-w-md">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search songs, artists..."
+                  className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500"
+                />
+              </div>
+            </form>
+
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => toggleLike()}
+                className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
+                  liked ? "text-pink-400" : "text-gray-400"
+                } ${!currentVideo ? "opacity-50 cursor-not-allowed" : ""}`}
+                disabled={!currentVideo || isLiking}
+              >
+                {isLiking ? (
+                  <div className="h-5 w-5 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <Heart
+                    className={`h-5 w-5 ${liked ? "fill-pink-400" : ""}`}
+                  />
+                )}
+              </button>
+              <button
+                onClick={() => setShowLikedLibrary(!showLikedLibrary)}
+                className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
+                  showLikedLibrary
+                    ? "bg-pink-600/30 text-pink-400"
+                    : "text-gray-400"
+                }`}
+              >
+                <ListMusic className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Liked Songs Library Sidebar */}
       {showLikedLibrary && (
-        <div className="fixed inset-0 z-40 overflow-hidden">
-          <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
             onClick={() => setShowLikedLibrary(false)}
-          ></div>
-          <div className="absolute right-0 top-0 h-full w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 border-l border-white/10 shadow-xl overflow-y-auto">
-            <div className="p-4 sticky top-0 bg-gray-900/90 backdrop-blur-sm border-b border-white/10 z-10">
+          />
+
+          {/* Sidebar */}
+          <div className="fixed top-16 right-0 bottom-0 w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 border-l border-white/10 shadow-xl z-50 flex flex-col">
+            <div className="p-4 bg-gray-900/90 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Heart className="h-5 w-5 text-pink-400" />
-                  Your Liked Songs
+                  Liked Library
                 </h2>
-                <button 
+                <button
                   onClick={() => setShowLikedLibrary(false)}
-                  className="p-1 rounded-full hover:bg-white/10"
+                  className="p-1 rounded-full hover:bg-white/10 transition-colors"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              
+
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => playAllLikedSongs(false)}
+                  className="flex-1 bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full text-sm flex items-center justify-center gap-2 transition-colors"
+                  disabled={likedSongs.length === 0}
+                >
+                  <Play className="h-4 w-4" />
+                  Play All
+                </button>
+                <button
+                  onClick={() => playAllLikedSongs(true)}
+                  className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full text-sm flex items-center justify-center gap-2 transition-colors"
+                  disabled={likedSongs.length === 0}
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle
+                </button>
+              </div>
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
@@ -359,77 +495,107 @@ export default function MusicApp() {
               </div>
             </div>
 
-            <div className="p-4">
-              {initialLoad ? (
-                <div className="space-y-2">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 animate-pulse">
-                      <div className="h-12 w-12 rounded-md bg-white/10"></div>
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 w-3/4 rounded bg-white/10"></div>
-                        <div className="h-3 w-1/2 rounded bg-white/10"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : filteredLikedSongs.length === 0 ? (
-                <div className="text-center py-12 text-gray-400">
-                  {librarySearchQuery ? (
-                    <>
-                      <Search className="w-8 h-8 mx-auto mb-4" />
-                      <p>No matching songs found</p>
-                    </>
-                  ) : (
-                    <>
-                      <Heart className="w-8 h-8 mx-auto mb-4" />
-                      <p>Your liked songs will appear here</p>
-                      <p className="text-sm mt-2 text-gray-500">
-                        Like songs by clicking the heart icon
-                      </p>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredLikedSongs.map((song) => (
-                    <div 
-                      key={song.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors ${currentVideo?.id === song.id ? 'bg-white/10' : ''}`}
-                      onClick={() => playVideo(song)}
-                    >
-                      <div className="relative h-12 w-12 flex-shrink-0 rounded-md overflow-hidden">
-                        <Image
-                          src={song.thumbnail}
-                          alt={song.title}
-                          fill
-                          className="object-cover"
-                          unoptimized
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-sm line-clamp-1">
-                          {song.title}
-                        </h3>
-                        <p className="text-xs text-gray-400 line-clamp-1">
-                          {song.artist}
-                        </p>
-                      </div>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLike(song);
-                        }}
-                        className="text-pink-400 hover:text-pink-300 p-1"
+            {/* Sidebar Content */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                {initialLoad ? (
+                  <div className="space-y-2">
+                    {[...Array(8)].map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 p-3 rounded-lg bg-white/5 animate-pulse"
                       >
-                        <Heart className="h-4 w-4 fill-pink-400" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                        <div className="h-12 w-12 rounded-md bg-white/10 flex-shrink-0"></div>
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 w-3/4 rounded bg-white/10"></div>
+                          <div className="h-3 w-1/2 rounded bg-white/10"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredLikedSongs.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    {librarySearchQuery ? (
+                      <>
+                        <Search className="w-8 h-8 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg mb-2">No matching songs found</p>
+                        <p className="text-sm text-gray-500">
+                          Try adjusting your search query
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Heart className="w-8 h-8 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg mb-2">
+                          Your liked songs will appear here
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Like songs by clicking the heart icon
+                        </p>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredLikedSongs.map((song) => (
+                      <div
+                        key={song.id}
+                        className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors ${
+                          currentVideo?.id === song.id
+                            ? "bg-pink-600/20 border border-pink-600/30"
+                            : ""
+                        }`}
+                        onClick={() => playVideo(song, true)}
+                      >
+                        <div className="relative h-12 w-12 flex-shrink-0 rounded-md overflow-hidden">
+                          <Image
+                            src={song.thumbnail}
+                            alt={song.title}
+                            fill
+                            className="object-cover"
+                            unoptimized
+                          />
+                          {currentVideo?.id === song.id && isPlaying && (
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                              <div className="w-2 h-2 bg-pink-400 rounded-full animate-pulse"></div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-sm line-clamp-1">
+                            {song.title}
+                          </h3>
+                          <p className="text-xs text-gray-400 line-clamp-1">
+                            {song.artist}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLike(song);
+                          }}
+                          className={`p-1 transition-colors ${
+                            isLiking && likedSongs.some((s) => s.id === song.id)
+                              ? "text-transparent"
+                              : "text-pink-400 hover:text-pink-300"
+                          }`}
+                          disabled={isLiking}
+                        >
+                          {isLiking &&
+                          likedSongs.some((s) => s.id === song.id) ? (
+                            <div className="h-4 w-4 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
+                          ) : (
+                            <Heart className="h-4 w-4 fill-pink-400" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Mood Recommendation Banner */}
@@ -565,14 +731,29 @@ export default function MusicApp() {
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
                       {video.duration}
                     </div>
-                    <button 
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleLike(video);
                       }}
-                      className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-sm ${likedSongs.some(s => s.id === video.id) ? 'bg-pink-600/80 text-white' : 'bg-black/70 text-gray-300 hover:bg-black/80'}`}
+                      className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-sm transition-colors ${
+                        likedSongs.some((s) => s.id === video.id)
+                          ? "bg-pink-600/80 text-white"
+                          : "bg-black/70 text-gray-300 hover:bg-black/80"
+                      }`}
+                      disabled={isLiking}
                     >
-                      <Heart className={`h-4 w-4 ${likedSongs.some(s => s.id === video.id) ? 'fill-white' : ''}`} />
+                      {isLiking && likedSongs.some((s) => s.id === video.id) ? (
+                        <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <Heart
+                          className={`h-4 w-4 ${
+                            likedSongs.some((s) => s.id === video.id)
+                              ? "fill-white"
+                              : ""
+                          }`}
+                        />
+                      )}
                     </button>
                   </div>
                   <div className="p-3">
@@ -591,28 +772,20 @@ export default function MusicApp() {
             </div>
           ) : (
             <div className="text-center py-12 text-gray-400">
-              <Search className="w-12 h-12 mx-auto mb-4" />
-              <p className="text-lg">No results found</p>
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="mt-4 bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full text-sm"
-                >
-                  Show Trending
-                </button>
-              )}
+              <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg mb-2">No videos found</p>
+              <p className="text-sm">Try searching for something else</p>
             </div>
           )}
         </div>
       </main>
 
-      {/* Player */}
+      {/* Music Player */}
       {currentVideo && (
-        <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-purple-900 to-indigo-900 border-t border-white/10 z-50">
-          <div className="container mx-auto px-4 py-3">
-            {/* Progress bar */}
-            <div className="w-full mb-2 flex items-center gap-2 text-xs text-gray-300">
-              <span className="w-10">{formatTime(played * duration)}</span>
+        <div className="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-md border-t border-white/10 p-4 z-40">
+          <div className="container mx-auto">
+            {/* Progress Bar */}
+            <div className="mb-4">
               <input
                 type="range"
                 min={0}
@@ -622,24 +795,27 @@ export default function MusicApp() {
                 onChange={handleSeekChange}
                 onMouseDown={handleSeekMouseDown}
                 onMouseUp={handleSeekMouseUp}
-                className="flex-1 h-1 bg-white/20 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-pink-500"
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
               />
-              <span className="w-10">{formatTime(duration)}</span>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>{formatTime(played * duration)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex items-center justify-between">
               {/* Song Info */}
-              <div className="flex items-center flex-1 min-w-0">
-                <div className="relative h-12 w-12 rounded-md mr-3 flex-shrink-0">
+              <div className="flex items-center space-x-3 flex-1 min-w-0">
+                <div className="relative h-12 w-12 rounded-md overflow-hidden flex-shrink-0">
                   <Image
                     src={currentVideo.thumbnail}
                     alt={currentVideo.title}
                     fill
-                    className="object-cover rounded-md"
+                    className="object-cover"
                     unoptimized
                   />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h3 className="font-medium text-sm line-clamp-1">
                     {currentVideo.title}
                   </h3>
@@ -647,45 +823,39 @@ export default function MusicApp() {
                     {currentVideo.artist}
                   </p>
                 </div>
-                <button 
-                  onClick={() => toggleLike()} 
-                  className={`ml-2 p-1 rounded-full ${liked ? 'text-pink-400' : 'text-gray-400 hover:text-white'}`}
-                >
-                  <Heart className={`h-4 w-4 ${liked ? "fill-pink-400" : ""}`} />
-                </button>
               </div>
 
-              {/* Player Controls */}
-              <div className="flex items-center space-x-2">
+              {/* Controls */}
+              <div className="flex items-center space-x-4 mx-4">
                 <button
                   onClick={playPrevious}
-                  className="text-gray-300 hover:text-white p-1"
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
                 >
                   <SkipBack className="h-5 w-5" />
                 </button>
                 <button
                   onClick={togglePlayPause}
-                  className="bg-white text-black p-2 rounded-full hover:bg-gray-200 flex items-center justify-center"
+                  className="p-3 bg-pink-600 hover:bg-pink-700 rounded-full transition-colors"
                 >
                   {isPlaying ? (
-                    <Pause className="h-5 w-5" />
+                    <Pause className="h-6 w-6" />
                   ) : (
-                    <Play className="h-5 w-5" />
+                    <Play className="h-6 w-6" />
                   )}
                 </button>
                 <button
                   onClick={playNext}
-                  className="text-gray-300 hover:text-white p-1"
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
                 >
                   <SkipForward className="h-5 w-5" />
                 </button>
               </div>
 
-              {/* Volume Controls */}
-              <div className="hidden sm:flex items-center space-x-2">
+              {/* Volume Control */}
+              <div className="flex items-center space-x-2 flex-1 justify-end">
                 <button
                   onClick={toggleMute}
-                  className="text-gray-300 hover:text-white"
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
                 >
                   {isMuted || volume === 0 ? (
                     <VolumeX className="h-5 w-5" />
@@ -699,32 +869,92 @@ export default function MusicApp() {
                   max="100"
                   value={volume}
                   onChange={changeVolume}
-                  className="w-20 accent-pink-500"
+                  className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
                 />
               </div>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* React Player (hidden but needed for playback) */}
+      {/* Hidden ReactPlayer */}
+      {currentVideo && (
+        <div className="hidden">
           <ReactPlayer
             ref={playerRef}
-            url={`https://www.youtube.com/watch?v=${currentVideo.id}`}
+            url={currentVideo.url}
             playing={isPlaying}
             volume={isMuted ? 0 : volume / 100}
             onProgress={handleProgress}
             onDuration={handleDuration}
             onEnded={playNext}
-            width="0"
-            height="0"
+            controls={false}
             config={{
               playerVars: {
+                autoplay: 1,
+                controls: 0,
+                disablekb: 1,
+                fs: 0,
+                iv_load_policy: 3,
                 modestbranding: 1,
+                playsinline: 1,
                 rel: 0,
+                showinfo: 0,
               },
             }}
           />
         </div>
       )}
+
+      {/* Custom Slider Styles */}
+      <style jsx>{`
+        .slider::-webkit-slider-thumb {
+          appearance: none;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #ec4899;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.3);
+        }
+
+        .slider::-moz-range-thumb {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #ec4899;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.3);
+        }
+
+        .slider::-webkit-slider-track {
+          background: linear-gradient(
+            to right,
+            #ec4899 0%,
+            #ec4899 ${played * 100}%,
+            rgba(255, 255, 255, 0.2) ${played * 100}%,
+            rgba(255, 255, 255, 0.2) 100%
+          );
+          height: 4px;
+          border-radius: 2px;
+        }
+
+        .line-clamp-1 {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
     </div>
   );
 }
