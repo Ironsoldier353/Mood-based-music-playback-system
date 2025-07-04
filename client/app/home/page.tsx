@@ -14,9 +14,12 @@ import {
   Globe,
   Smile,
   ArrowRight,
+  X,
 } from "lucide-react";
 import ReactPlayer from "react-player/youtube";
 import Image from "next/image";
+import toast from "react-hot-toast";
+
 type VideoResult = {
   id: string;
   title: string;
@@ -31,10 +34,7 @@ type VideoResult = {
 type Language = "hindi" | "english" | "bengali" | "punjabi" | "tamil";
 type ContentType = "trending" | "new-releases" | "top-hits";
 
-import { useAuth } from "@clerk/nextjs"; // Add this import
-
 export default function MusicApp() {
-  const { userId } = useAuth();
   const router = useRouter();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>("hindi");
   const [contentType, setContentType] = useState<ContentType>("trending");
@@ -49,7 +49,13 @@ export default function MusicApp() {
   const [played, setPlayed] = useState(0);
   const [duration, setDuration] = useState(0);
   const [seeking, setSeeking] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [showLikedLibrary, setShowLikedLibrary] = useState(false);
+  const [likedSongs, setLikedSongs] = useState<VideoResult[]>([]);
+  const [librarySearchQuery, setLibrarySearchQuery] = useState("");
+  const [initialLoad, setInitialLoad] = useState(true);
   const playerRef = useRef<ReactPlayer>(null);
+
   const languages = [
     { id: "hindi", name: "Hindi", flag: "🇮🇳" },
     { id: "english", name: "English", flag: "🇺🇸" },
@@ -82,22 +88,44 @@ export default function MusicApp() {
     return `${languageMap[selectedLanguage]} ${typeMap[contentType]}`;
   }, [selectedLanguage, contentType]);
 
+  // Load liked songs on initial render
+  useEffect(() => {
+    const loadLikedSongs = async () => {
+      try {
+        const res = await fetch('/api/liked-songs');
+        if (res.ok) {
+          const data = await res.json();
+          setLikedSongs(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch liked songs:", err);
+        toast.error("Failed to load your liked songs");
+      } finally {
+        setInitialLoad(false);
+      }
+    };
+
+    loadLikedSongs();
+  }, []);
+
+  // Update liked status when current video changes
+  useEffect(() => {
+    if (currentVideo) {
+      const isLiked = likedSongs.some(song => song.id === currentVideo.id);
+      setLiked(isLiked);
+    }
+  }, [currentVideo, likedSongs]);
+
   const fetchVideos = async (query: string) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(
-        `/api/youtube-search?query=${encodeURIComponent(
-          query
-        )}&t=${Date.now()}`,
-        {
-          cache: "no-store",
-        }
+        `/api/youtube-search?query=${encodeURIComponent(query)}&t=${Date.now()}`,
+        { cache: "no-store" }
       );
 
-      if (!res.ok) {
-        throw new Error(`Failed to fetch: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
       const { videos } = await res.json();
       if (!videos || videos.length === 0) {
@@ -130,6 +158,8 @@ export default function MusicApp() {
   const playVideo = (video: VideoResult) => {
     setCurrentVideo(video);
     setIsPlaying(true);
+    const isLiked = likedSongs.some(song => song.id === video.id);
+    setLiked(isLiked);
   };
 
   const togglePlayPause = () => {
@@ -204,7 +234,52 @@ export default function MusicApp() {
     setIsPlaying(true);
   };
 
-  if (!userId) return <div>Unauthorized</div>;
+  const toggleLike = async (video?: VideoResult) => {
+    const videoToLike = video || currentVideo;
+    if (!videoToLike) return;
+
+    try {
+      const res = await fetch("/api/like", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoId: videoToLike.id,
+          title: videoToLike.title,
+          artist: videoToLike.artist,
+          url: videoToLike.url,
+          thumbnail: videoToLike.thumbnail,
+          duration: videoToLike.duration
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to toggle like");
+
+      const data = await res.json();
+      
+      // Update liked songs list
+      const songsRes = await fetch('/api/liked-songs');
+      if (songsRes.ok) {
+        const updatedSongs = await songsRes.json();
+        setLikedSongs(updatedSongs);
+      }
+
+      // Update like status if current video is the one being liked/unliked
+      if (!video || video.id === currentVideo?.id) {
+        setLiked(data.liked);
+      }
+
+      // Show feedback to user
+      toast.success(data.liked ? "Added to liked songs" : "Removed from liked songs");
+    } catch (error) {
+      console.error("Error toggling like:", error);
+      toast.error("Failed to update liked songs");
+    }
+  };
+
+  const filteredLikedSongs = likedSongs.filter(song =>
+    song.title.toLowerCase().includes(librarySearchQuery.toLowerCase()) ||
+    song.artist.toLowerCase().includes(librarySearchQuery.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 text-white">
@@ -232,15 +307,130 @@ export default function MusicApp() {
           </form>
 
           <div className="flex items-center space-x-4">
-            <button className="p-2 rounded-full hover:bg-white/10">
-              <Heart className="h-5 w-5" />
+            <button 
+              onClick={() => toggleLike()} 
+              className={`p-2 rounded-full hover:bg-white/10 ${liked ? 'text-pink-400' : 'text-gray-400'}`}
+              disabled={!currentVideo}
+            >
+              <Heart className={`h-5 w-5 ${liked ? "fill-pink-400" : ""}`} />
             </button>
-            <button className="p-2 rounded-full hover:bg-white/10">
+  
+            <button 
+              onClick={() => setShowLikedLibrary(!showLikedLibrary)}
+              className={`p-2 rounded-full hover:bg-white/10 ${showLikedLibrary ? 'bg-pink-600/30 text-pink-400' : 'text-gray-400'}`}
+            >
               <ListMusic className="h-5 w-5" />
             </button>
           </div>
         </div>
       </header>
+
+      {/* Liked Songs Library Sidebar */}
+      {showLikedLibrary && (
+        <div className="fixed inset-0 z-40 overflow-hidden">
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowLikedLibrary(false)}
+          ></div>
+          <div className="absolute right-0 top-0 h-full w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 border-l border-white/10 shadow-xl overflow-y-auto">
+            <div className="p-4 sticky top-0 bg-gray-900/90 backdrop-blur-sm border-b border-white/10 z-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Heart className="h-5 w-5 text-pink-400" />
+                  Your Liked Songs
+                </h2>
+                <button 
+                  onClick={() => setShowLikedLibrary(false)}
+                  className="p-1 rounded-full hover:bg-white/10"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={librarySearchQuery}
+                  onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                  placeholder="Search your library..."
+                  className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="p-4">
+              {initialLoad ? (
+                <div className="space-y-2">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 animate-pulse">
+                      <div className="h-12 w-12 rounded-md bg-white/10"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-3/4 rounded bg-white/10"></div>
+                        <div className="h-3 w-1/2 rounded bg-white/10"></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredLikedSongs.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  {librarySearchQuery ? (
+                    <>
+                      <Search className="w-8 h-8 mx-auto mb-4" />
+                      <p>No matching songs found</p>
+                    </>
+                  ) : (
+                    <>
+                      <Heart className="w-8 h-8 mx-auto mb-4" />
+                      <p>Your liked songs will appear here</p>
+                      <p className="text-sm mt-2 text-gray-500">
+                        Like songs by clicking the heart icon
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredLikedSongs.map((song) => (
+                    <div 
+                      key={song.id}
+                      className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors ${currentVideo?.id === song.id ? 'bg-white/10' : ''}`}
+                      onClick={() => playVideo(song)}
+                    >
+                      <div className="relative h-12 w-12 flex-shrink-0 rounded-md overflow-hidden">
+                        <Image
+                          src={song.thumbnail}
+                          alt={song.title}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-sm line-clamp-1">
+                          {song.title}
+                        </h3>
+                        <p className="text-xs text-gray-400 line-clamp-1">
+                          {song.artist}
+                        </p>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLike(song);
+                        }}
+                        className="text-pink-400 hover:text-pink-300 p-1"
+                      >
+                        <Heart className="h-4 w-4 fill-pink-400" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mood Recommendation Banner */}
       <div className="container mx-auto px-4 py-4">
@@ -375,6 +565,15 @@ export default function MusicApp() {
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
                       {video.duration}
                     </div>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLike(video);
+                      }}
+                      className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-sm ${likedSongs.some(s => s.id === video.id) ? 'bg-pink-600/80 text-white' : 'bg-black/70 text-gray-300 hover:bg-black/80'}`}
+                    >
+                      <Heart className={`h-4 w-4 ${likedSongs.some(s => s.id === video.id) ? 'fill-white' : ''}`} />
+                    </button>
                   </div>
                   <div className="p-3">
                     <h3 className="font-medium text-sm line-clamp-2">
@@ -448,8 +647,11 @@ export default function MusicApp() {
                     {currentVideo.artist}
                   </p>
                 </div>
-                <button className="ml-2 text-pink-400 hover:text-pink-300 flex-shrink-0">
-                  <Heart className="h-4 w-4" />
+                <button 
+                  onClick={() => toggleLike()} 
+                  className={`ml-2 p-1 rounded-full ${liked ? 'text-pink-400' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Heart className={`h-4 w-4 ${liked ? "fill-pink-400" : ""}`} />
                 </button>
               </div>
 
