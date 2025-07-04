@@ -15,4 +15,20 @@ model User {
   fullName  String?
   dob       DateTime?
   createdAt DateTime @default(now())
+  likedSongs LikedSong[]
 }
+
+model LikedSong {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  title     String
+  artist    String
+  url       String
+  thumbnail String
+  duration  String 
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
