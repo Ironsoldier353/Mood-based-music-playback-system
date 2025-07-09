@@ -4,11 +4,11 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(
   request: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: Promise<{id: string }> }
 ) {
   const { userId: clerkId } = await auth();
 
-  const { id } = await Promise.resolve(context.params);
+  const { id } = await params;
 
   if (!clerkId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
