@@ -4,10 +4,10 @@ import { prisma } from "@/lib/prisma";
 
 export async function DELETE(
   req: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: { id: string } }
 ) {
   const { userId: clerkId } = await auth();
-  const { id } = await Promise.resolve(context.params);
+  const { id } = params;
 
   if (!clerkId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,7 +31,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Playlist not found" }, { status: 404 });
     }
 
-    // Delete songs first due to FK constraint, then playlist
     await prisma.playlistSong.deleteMany({ where: { playlistId: id } });
     await prisma.playlist.delete({ where: { id } });
 
@@ -47,4 +46,3 @@ export async function DELETE(
     );
   }
 }
-
