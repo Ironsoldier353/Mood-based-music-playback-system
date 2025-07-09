@@ -1,5 +1,5 @@
 import { SignIn } from "@clerk/nextjs";
-import { BookOpen } from "lucide-react";
+import { AudioLines } from "lucide-react";
 import Link from "next/link";
 
 export default function Page() {
@@ -13,7 +13,7 @@ export default function Page() {
               <div className="relative w-10 h-10">
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg blur-sm"></div>
                 <div className="absolute inset-0 bg-gray-900 rounded-lg flex items-center justify-center border border-gray-700">
-                  <BookOpen className="h-5 w-5 text-blue-400" />
+                  <AudioLines className="h-5 w-5 text-blue-400" />
                 </div>
               </div>
               <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
