@@ -16,7 +16,12 @@ import {
   ArrowRight,
   X,
   Shuffle,
+  Plus,
+  MoreVertical,
+  Check,
+  Trash2,
 } from "lucide-react";
+
 import ReactPlayer from "react-player/youtube";
 import Image from "next/image";
 import toast from "react-hot-toast";
@@ -34,6 +39,23 @@ type VideoResult = {
 
 type Language = "hindi" | "english" | "bengali" | "punjabi" | "tamil";
 type ContentType = "trending" | "new-releases" | "top-hits";
+
+type Playlist = {
+  id: string;
+  name: string;
+  description: string | null;
+  songs: PlaylistSong[];
+};
+
+type PlaylistSong = {
+  id: string;
+  videoId: string;
+  title: string;
+  artist: string;
+  url: string;
+  thumbnail: string;
+  duration: string;
+};
 
 export default function MusicApp() {
   const router = useRouter();
@@ -57,8 +79,29 @@ export default function MusicApp() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [isLiking, setIsLiking] = useState(false);
   const [isPlayingFromLibrary, setIsPlayingFromLibrary] = useState(false);
+  const [showPlaylists, setShowPlaylists] = useState(false);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(
+    null
+  );
+  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [newPlaylistDescription, setNewPlaylistDescription] = useState("");
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const playerRef = useRef<ReactPlayer>(null);
-
+const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false);
+// Add this effect to handle clicks outside the dropdown
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (showPlaylistDropdown && !(event.target as Element).closest('.relative')) {
+      setShowPlaylistDropdown(false);
+    }
+  };
+  
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => {
+    document.removeEventListener('mousedown', handleClickOutside);
+  };
+}, [showPlaylistDropdown]);
   const languages = [
     { id: "hindi", name: "Hindi", flag: "🇮🇳" },
     { id: "english", name: "English", flag: "🇺🇸" },
@@ -91,24 +134,33 @@ export default function MusicApp() {
     return `${languageMap[selectedLanguage]} ${typeMap[contentType]}`;
   }, [selectedLanguage, contentType]);
 
-  // Load liked songs on initial render
+  // Load liked songs and playlists on initial render
   useEffect(() => {
-    const loadLikedSongs = async () => {
+    const loadInitialData = async () => {
       try {
-        const res = await fetch("/api/liked-songs");
-        if (res.ok) {
-          const data = await res.json();
-          setLikedSongs(data);
+        const [likedRes, playlistsRes] = await Promise.all([
+          fetch("/api/liked-songs"),
+          fetch("/api/playlists"),
+        ]);
+
+        if (likedRes.ok) {
+          const likedData = await likedRes.json();
+          setLikedSongs(likedData);
+        }
+
+        if (playlistsRes.ok) {
+          const playlistsData = await playlistsRes.json();
+          setPlaylists(playlistsData);
         }
       } catch (err) {
-        console.error("Failed to fetch liked songs:", err);
-        toast.error("Failed to load your liked songs");
+        console.error("Failed to fetch initial data:", err);
+        toast.error("Failed to load your data");
       } finally {
         setInitialLoad(false);
       }
     };
 
-    loadLikedSongs();
+    loadInitialData();
   }, []);
 
   // Update liked status when current video changes
@@ -118,6 +170,35 @@ export default function MusicApp() {
       setLiked(isLiked);
     }
   }, [currentVideo, likedSongs]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (openDropdownId && !(e.target as Element).closest(".dropdown-container")) {
+        setOpenDropdownId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [openDropdownId]);
+
+  // Close sidebar when clicking outside or pressing escape
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (
+        e.key === "Escape" &&
+        (showLikedLibrary || showPlaylists || selectedPlaylist)
+      ) {
+        setShowLikedLibrary(false);
+        setShowPlaylists(false);
+        setSelectedPlaylist(null);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [showLikedLibrary, showPlaylists, selectedPlaylist]);
 
   const fetchVideos = async (query: string) => {
     setLoading(true);
@@ -225,7 +306,25 @@ export default function MusicApp() {
   const playNext = () => {
     if (!currentVideo) return;
 
-    if (isPlayingFromLibrary && likedSongs.length > 0) {
+    if (isPlayingFromLibrary && selectedPlaylist?.songs) {
+      const currentIndex = selectedPlaylist.songs.findIndex(
+        (v) => v.videoId === currentVideo.id
+      );
+      if (currentIndex !== -1) {
+        const nextIndex = (currentIndex + 1) % selectedPlaylist.songs.length;
+        setCurrentVideo({
+          id: selectedPlaylist.songs[nextIndex].videoId,
+          title: selectedPlaylist.songs[nextIndex].title,
+          artist: selectedPlaylist.songs[nextIndex].artist,
+          url: selectedPlaylist.songs[nextIndex].url,
+          thumbnail: selectedPlaylist.songs[nextIndex].thumbnail,
+          duration: selectedPlaylist.songs[nextIndex].duration,
+          views: "",
+          published: "",
+        });
+        setIsPlaying(true);
+      }
+    } else if (isPlayingFromLibrary && likedSongs.length > 0) {
       const currentIndex = likedSongs.findIndex(
         (v) => v.id === currentVideo.id
       );
@@ -243,7 +342,27 @@ export default function MusicApp() {
   const playPrevious = () => {
     if (!currentVideo) return;
 
-    if (isPlayingFromLibrary && likedSongs.length > 0) {
+    if (isPlayingFromLibrary && selectedPlaylist?.songs) {
+      const currentIndex = selectedPlaylist.songs.findIndex(
+        (v) => v.videoId === currentVideo.id
+      );
+      if (currentIndex !== -1) {
+        const prevIndex =
+          (currentIndex - 1 + selectedPlaylist.songs.length) %
+          selectedPlaylist.songs.length;
+        setCurrentVideo({
+          id: selectedPlaylist.songs[prevIndex].videoId,
+          title: selectedPlaylist.songs[prevIndex].title,
+          artist: selectedPlaylist.songs[prevIndex].artist,
+          url: selectedPlaylist.songs[prevIndex].url,
+          thumbnail: selectedPlaylist.songs[prevIndex].thumbnail,
+          duration: selectedPlaylist.songs[prevIndex].duration,
+          views: "",
+          published: "",
+        });
+        setIsPlaying(true);
+      }
+    } else if (isPlayingFromLibrary && likedSongs.length > 0) {
       const currentIndex = likedSongs.findIndex(
         (v) => v.id === currentVideo.id
       );
@@ -306,6 +425,111 @@ export default function MusicApp() {
     }
   };
 
+  const fetchPlaylists = async () => {
+    try {
+      const res = await fetch("/api/playlists");
+      if (res.ok) {
+        const data = await res.json();
+        setPlaylists(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch playlists:", err);
+      toast.error("Failed to load playlists");
+    }
+  };
+
+  const createPlaylist = async () => {
+    if (!newPlaylistName.trim()) {
+      toast.error("Playlist name is required");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/playlists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newPlaylistName,
+          description: newPlaylistDescription,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to create playlist");
+
+      const newPlaylist = await res.json();
+      setPlaylists([...playlists, newPlaylist]);
+      setNewPlaylistName("");
+      setNewPlaylistDescription("");
+      toast.success("Playlist created successfully");
+    } catch (error) {
+      console.error("Error creating playlist:", error);
+      toast.error("Failed to create playlist");
+    }
+  };
+
+const addToPlaylist = async (playlistId: string, video?: VideoResult) => {
+  const videoToAdd = video || currentVideo;
+  if (!videoToAdd) return;
+
+  try {
+    const res = await fetch(`/api/playlists/${playlistId}/songs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        videoId: videoToAdd.id,
+        title: videoToAdd.title,
+        artist: videoToAdd.artist,
+        url: videoToAdd.url,
+        thumbnail: videoToAdd.thumbnail,
+        duration: videoToAdd.duration,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (res.status === 400 && data.error === "Song already exists in playlist") {
+        toast.error("Song already exists in this playlist");
+      } else {
+        toast.error(data.error || "Failed to add to playlist");
+      }
+      return;
+    }
+
+    // Refresh playlists
+    fetchPlaylists();
+    toast.success("Added to playlist");
+  } catch (error) {
+    console.error("Error adding to playlist:", error);
+    toast.error("Something went wrong.");
+  }
+};
+
+
+  const removeFromPlaylist = async (playlistId: string, songId: string) => {
+    try {
+      const res = await fetch(`/api/playlists/${playlistId}/songs/${songId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) throw new Error("Failed to remove from playlist");
+
+      // Refresh playlists
+      fetchPlaylists();
+      // If we're currently viewing this playlist, update the selected playlist
+      if (selectedPlaylist?.id === playlistId) {
+        setSelectedPlaylist({
+          ...selectedPlaylist,
+          songs: selectedPlaylist.songs.filter((s) => s.id !== songId),
+        });
+      }
+      toast.success("Removed from playlist");
+    } catch (error) {
+      console.error("Error removing from playlist:", error);
+      toast.error("Failed to remove from playlist");
+    }
+  };
+
   const playAllLikedSongs = (shuffle = false) => {
     if (likedSongs.length === 0) {
       toast.error("No songs in your library");
@@ -330,17 +554,78 @@ export default function MusicApp() {
       song.artist.toLowerCase().includes(librarySearchQuery.toLowerCase())
   );
 
-  // Close sidebar when clicking outside or pressing escape
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && showLikedLibrary) {
-        setShowLikedLibrary(false);
-      }
-    };
+  const PlaylistDropdown = ({ video }: { video: VideoResult }) => {
+    return (
+      <div className="absolute right-0 top-full mt-1 w-48 bg-gray-800 rounded-md shadow-lg z-50 border border-white/10">
+        <div className="py-1">
+          <div className="px-3 py-2 text-xs text-gray-400 border-b border-white/10">
+            Add to playlist
+          </div>
+          {playlists.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-gray-400">
+              No playlists found
+            </div>
+          ) : (
+            playlists.map((playlist) => (
+              <button
+                key={playlist.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addToPlaylist(playlist.id, video);
+                  setOpenDropdownId(null);
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-white/10"
+              >
+                {playlist.name}
+              </button>
+            ))
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPlaylists(true);
+              setNewPlaylistName(`${video.title} - ${video.artist}`);
+              setOpenDropdownId(null);
+            }}
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-white/10 border-t border-white/10 text-pink-400 items-center gap-1"
+          >
+            <Plus className="h-4 w-4" />
+            Create new playlist
+          </button>
+        </div>
+      </div>
+    );
+  };
+const deletePlaylist = async (playlistId: string) => {
+  if (!confirm('Are you sure you want to delete this playlist?')) return;
+  
+  try {
+    const response = await fetch(`/api/playlists/${playlistId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [showLikedLibrary]);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    // Refresh the playlists after successful deletion
+    const updatedPlaylists = playlists.filter(p => p.id !== playlistId);
+    setPlaylists(updatedPlaylists);
+    
+    // If the deleted playlist was selected, clear the selection
+    if (selectedPlaylist?.id === playlistId) {
+      setSelectedPlaylist(null);
+    }
+
+    console.log('Playlist deleted successfully');
+  } catch (error) {
+    console.error('Failed to delete playlist:', error);
+    alert('Failed to delete playlist. Please try again.');
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 text-white relative">
@@ -361,6 +646,21 @@ export default function MusicApp() {
                 onClick={() => setShowLikedLibrary(!showLikedLibrary)}
                 className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
                   showLikedLibrary
+                    ? "bg-pink-600/30 text-pink-400"
+                    : "text-gray-400"
+                }`}
+              >
+                <Heart className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => {
+                  setShowPlaylists(!showPlaylists);
+                  if (!showPlaylists) {
+                    fetchPlaylists();
+                  }
+                }}
+                className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
+                  showPlaylists
                     ? "bg-pink-600/30 text-pink-400"
                     : "text-gray-400"
                 }`}
@@ -410,24 +710,24 @@ export default function MusicApp() {
 
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => toggleLike()}
-                className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
-                  liked ? "text-pink-400" : "text-gray-400"
-                } ${!currentVideo ? "opacity-50 cursor-not-allowed" : ""}`}
-                disabled={!currentVideo || isLiking}
-              >
-                {isLiking ? (
-                  <div className="h-5 w-5 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <Heart
-                    className={`h-5 w-5 ${liked ? "fill-pink-400" : ""}`}
-                  />
-                )}
-              </button>
-              <button
                 onClick={() => setShowLikedLibrary(!showLikedLibrary)}
                 className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
                   showLikedLibrary
+                    ? "bg-pink-600/30 text-pink-400"
+                    : "text-gray-400"
+                }`}
+              >
+                <Heart className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => {
+                  setShowPlaylists(!showPlaylists);
+                  if (!showPlaylists) {
+                    fetchPlaylists();
+                  }
+                }}
+                className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
+                  showPlaylists
                     ? "bg-pink-600/30 text-pink-400"
                     : "text-gray-400"
                 }`}
@@ -569,27 +869,482 @@ export default function MusicApp() {
                             {song.artist}
                           </p>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLike(song);
-                          }}
-                          className={`p-1 transition-colors ${
-                            isLiking && likedSongs.some((s) => s.id === song.id)
-                              ? "text-transparent"
-                              : "text-pink-400 hover:text-pink-300"
-                          }`}
-                          disabled={isLiking}
-                        >
-                          {isLiking &&
-                          likedSongs.some((s) => s.id === song.id) ? (
-                            <div className="h-4 w-4 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
-                          ) : (
-                            <Heart className="h-4 w-4 fill-pink-400" />
-                          )}
-                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleLike(song);
+                            }}
+                            className={`p-1 transition-colors ${
+                              isLiking && likedSongs.some((s) => s.id === song.id)
+                                ? "text-transparent"
+                                : "text-pink-400 hover:text-pink-300"
+                            }`}
+                            disabled={isLiking}
+                          >
+                            {isLiking &&
+                            likedSongs.some((s) => s.id === song.id) ? (
+                              <div className="h-4 w-4 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                              <Heart className="h-4 w-4 fill-pink-400" />
+                            )}
+                          </button>
+                          <div className="relative dropdown-container">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenDropdownId(openDropdownId === song.id ? null : song.id);
+                              }}
+                              className="p-1 text-gray-400 hover:text-white transition-colors"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+                            {openDropdownId === song.id && (
+                              <PlaylistDropdown video={song} />
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Playlists Sidebar */}
+      {showPlaylists && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            onClick={() => setShowPlaylists(false)}
+          />
+
+          {/* Sidebar */}
+          <div className="fixed top-16 right-0 bottom-0 w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 border-l border-white/10 shadow-xl z-50 flex flex-col">
+            <div className="p-4 bg-gray-900/90 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <ListMusic className="h-5 w-5 text-pink-400" />
+                  Your Playlists
+                </h2>
+                <button
+                  onClick={() => setShowPlaylists(false)}
+                  className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Create new playlist form */}
+              <div className="mb-4 space-y-2">
+                <input
+                  type="text"
+                  value={newPlaylistName}
+                  onChange={(e) => setNewPlaylistName(e.target.value)}
+                  placeholder="New playlist name"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+                <textarea
+                  value={newPlaylistDescription}
+                  onChange={(e) => setNewPlaylistDescription(e.target.value)}
+                  placeholder="Description (optional)"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                  rows={2}
+                />
+                <button
+                  onClick={createPlaylist}
+                  className="w-full bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-md text-sm"
+                >
+                  Create Playlist
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={librarySearchQuery}
+                  onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                  placeholder="Search your playlists..."
+                  className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Playlist Content */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                {playlists.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <ListMusic className="w-8 h-8 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg mb-2">No playlists yet</p>
+                    <p className="text-sm text-gray-500">
+                      Create your first playlist above
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+{playlists.map((playlist) => (
+  <div
+    key={playlist.id}
+    className={`p-3 rounded-lg hover:bg-white/10 transition-colors cursor-pointer group ${
+      selectedPlaylist?.id === playlist.id
+        ? "bg-pink-600/20 border border-pink-600/30"
+        : "bg-white/5"
+    }`}
+    onClick={() => setSelectedPlaylist(playlist)}
+  >
+    <div className="flex justify-between items-center">
+      <div>
+        <h3 className="font-medium">{playlist.name}</h3>
+        <p className="text-xs text-gray-400">
+          {playlist.songs?.length || 0} songs
+        </p>
+      </div>
+      <div className="flex items-center gap-1">
+        {selectedPlaylist?.id === playlist.id && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedPlaylist(null);
+            }}
+            className="p-1 text-gray-400 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            deletePlaylist(playlist.id);
+          }}
+          className="p-1 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Delete playlist"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+    {playlist.description && (
+      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+        {playlist.description}
+      </p>
+    )}
+  </div>
+))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Selected Playlist View */}
+      {selectedPlaylist && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            onClick={() => setSelectedPlaylist(null)}
+          />
+
+          {/* Sidebar */}
+          <div className="fixed top-16 right-0 bottom-0 w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 border-l border-white/10 shadow-xl z-50 flex flex-col">
+            <div className="p-4 bg-gray-900/90 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <ListMusic className="h-5 w-5 text-pink-400" />
+                  Your Playlists
+                </h2>
+                <button
+                  onClick={() => setShowPlaylists(false)}
+                  className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Create new playlist form */}
+              <div className="mb-4 space-y-2">
+                <input
+                  type="text"
+                  value={newPlaylistName}
+                  onChange={(e) => setNewPlaylistName(e.target.value)}
+                  placeholder="New playlist name"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+                <textarea
+                  value={newPlaylistDescription}
+                  onChange={(e) => setNewPlaylistDescription(e.target.value)}
+                  placeholder="Description (optional)"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                  rows={2}
+                />
+                <button
+                  onClick={createPlaylist}
+                  className="w-full bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-md text-sm"
+                >
+                  Create Playlist
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={librarySearchQuery}
+                  onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                  placeholder="Search your playlists..."
+                  className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Playlist Content */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                {playlists.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <ListMusic className="w-8 h-8 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg mb-2">No playlists yet</p>
+                    <p className="text-sm text-gray-500">
+                      Create your first playlist above
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {playlists.map((playlist) => (
+<div
+  key={playlist.id}
+  className={`p-3 rounded-lg hover:bg-white/10 transition-colors cursor-pointer group ${
+    selectedPlaylist?.id === playlist.id
+      ? "bg-pink-600/20 border border-pink-600/30"
+      : "bg-white/5"
+  }`}
+  onClick={() => setSelectedPlaylist(playlist)}
+>
+  <div className="flex justify-between items-center">
+    <div>
+      <h3 className="font-medium">{playlist.name}</h3>
+      <p className="text-xs text-gray-400">
+        {playlist.songs?.length || 0} songs
+      </p>
+    </div>
+    <div className="flex items-center gap-1">
+      {selectedPlaylist?.id === playlist.id && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedPlaylist(null);
+          }}
+          className="p-1 text-gray-400 hover:text-white"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          deletePlaylist(playlist.id);
+        }}
+        className="p-1 text-gray-400 hover:text-white md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+        aria-label="Delete playlist"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  </div>
+  {playlist.description && (
+    <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+      {playlist.description}
+    </p>
+  )}
+</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Selected Playlist View */}
+      {selectedPlaylist && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            onClick={() => setSelectedPlaylist(null)}
+          />
+
+          {/* Sidebar */}
+          <div className="fixed top-16 right-0 bottom-0 w-full max-w-md bg-gradient-to-b from-gray-900 to-gray-800 border-l border-white/10 shadow-xl z-50 flex flex-col">
+            <div className="p-4 bg-gray-900/90 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xl font-bold">{selectedPlaylist.name}</h2>
+                <button
+                  onClick={() => setSelectedPlaylist(null)}
+                  className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {selectedPlaylist.description && (
+                <p className="text-sm text-gray-400 mb-4">
+                  {selectedPlaylist.description}
+                </p>
+              )}
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => {
+                    if (selectedPlaylist.songs.length > 0) {
+                      playVideo(
+                        {
+                          id: selectedPlaylist.songs[0].videoId,
+                          title: selectedPlaylist.songs[0].title,
+                          artist: selectedPlaylist.songs[0].artist,
+                          url: selectedPlaylist.songs[0].url,
+                          thumbnail: selectedPlaylist.songs[0].thumbnail,
+                          duration: selectedPlaylist.songs[0].duration,
+                          views: "",
+                          published: "",
+                        },
+                        true
+                      );
+                    }
+                  }}
+                  className="flex-1 bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full text-sm flex items-center justify-center gap-2 transition-colors"
+                  disabled={selectedPlaylist.songs.length === 0}
+                >
+                  <Play className="h-4 w-4" />
+                  Play All
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedPlaylist.songs.length > 0) {
+                      const shuffled = [...selectedPlaylist.songs].sort(
+                        () => Math.random() - 0.5
+                      );
+                      playVideo(
+                        {
+                          id: shuffled[0].videoId,
+                          title: shuffled[0].title,
+                          artist: shuffled[0].artist,
+                          url: shuffled[0].url,
+                          thumbnail: shuffled[0].thumbnail,
+                          duration: shuffled[0].duration,
+                          views: "",
+                          published: "",
+                        },
+                        true
+                      );
+                    }
+                  }}
+                  className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full text-sm flex items-center justify-center gap-2 transition-colors"
+                  disabled={selectedPlaylist.songs.length === 0}
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={librarySearchQuery}
+                  onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                  placeholder="Search in playlist..."
+                  className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Playlist Songs */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                {selectedPlaylist.songs.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <ListMusic className="w-8 h-8 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg mb-2">No songs in this playlist</p>
+                    <p className="text-sm text-gray-500">
+                      Add songs from the main library
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedPlaylist.songs
+                      .filter(
+                        (song) =>
+                          song.title
+                            .toLowerCase()
+                            .includes(librarySearchQuery.toLowerCase()) ||
+                          song.artist
+                            .toLowerCase()
+                            .includes(librarySearchQuery.toLowerCase())
+                      )
+                      .map((song) => (
+                        <div
+                          key={song.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 cursor-pointer transition-colors ${
+                            currentVideo?.id === song.videoId
+                              ? "bg-pink-600/20 border border-pink-600/30"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            playVideo(
+                              {
+                                id: song.videoId,
+                                title: song.title,
+                                artist: song.artist,
+                                url: song.url,
+                                thumbnail: song.thumbnail,
+                                duration: song.duration,
+                                views: "",
+                                published: "",
+                              },
+                              true
+                            )
+                          }
+                        >
+                          <div className="relative h-12 w-12 flex-shrink-0 rounded-md overflow-hidden">
+                            <Image
+                              src={song.thumbnail}
+                              alt={song.title}
+                              fill
+                              className="object-cover"
+                              unoptimized
+                            />
+                            {currentVideo?.id === song.videoId && isPlaying && (
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                <div className="w-2 h-2 bg-pink-400 rounded-full animate-pulse"></div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-sm line-clamp-1">
+                              {song.title}
+                            </h3>
+                            <p className="text-xs text-gray-400 line-clamp-1">
+                              {song.artist}
+                            </p>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeFromPlaylist(selectedPlaylist.id, song.id);
+                            }}
+                            className="p-1 text-gray-400 hover:text-pink-400 transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
                   </div>
                 )}
               </div>
@@ -825,31 +1580,110 @@ export default function MusicApp() {
                 </div>
               </div>
 
-              {/* Controls */}
-              <div className="flex items-center space-x-4 mx-4">
+   {/* Controls */}
+<div className="flex items-center space-x-4 mx-4">
+  <button
+    onClick={playPrevious}
+    className="p-2 rounded-full hover:bg-white/10 transition-colors"
+  >
+    <SkipBack className="h-5 w-5" />
+  </button>
+  <button
+    onClick={togglePlayPause}
+    className="p-3 bg-pink-600 hover:bg-pink-700 rounded-full transition-colors"
+  >
+    {isPlaying ? (
+      <Pause className="h-6 w-6" />
+    ) : (
+      <Play className="h-6 w-6" />
+    )}
+  </button>
+  <button
+    onClick={playNext}
+    className="p-2 rounded-full hover:bg-white/10 transition-colors"
+  >
+    <SkipForward className="h-5 w-5" />
+  </button>
+  
+  {/* Add to Liked Library */}
+  <button
+    onClick={() => toggleLike(currentVideo)}
+    className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
+      likedSongs.some(s => s.id === currentVideo.id)
+        ? "text-pink-400"
+        : "text-gray-400"
+    }`}
+    disabled={isLiking}
+  >
+    {isLiking && likedSongs.some(s => s.id === currentVideo.id) ? (
+      <div className="h-5 w-5 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
+    ) : (
+      <Heart className="h-5 w-5" fill={likedSongs.some(s => s.id === currentVideo.id) ? "#ec4899" : "none"} />
+    )}
+  </button>
+  
+  {/* Add to Playlist */}
+  <div className="relative">
+    <button
+      onClick={() => setShowPlaylistDropdown(!showPlaylistDropdown)}
+      className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
+    >
+      <Plus className="h-5 w-5" />
+    </button>
+    
+    {/* Playlist Dropdown */}
+    {showPlaylistDropdown && (
+      <div className="absolute bottom-full mb-2 right-0 w-48 bg-gray-800 rounded-lg shadow-lg border border-white/10 z-50">
+        <div className="p-2 max-h-60 overflow-y-auto">
+          {playlists.length === 0 ? (
+            <div className="p-2 text-center text-sm text-gray-400">
+              <p>No playlists yet</p>
+              <button
+                onClick={() => {
+                  setShowPlaylistDropdown(false);
+                  setShowPlaylists(true);
+                }}
+                className="mt-2 text-pink-400 hover:text-pink-300 text-sm"
+              >
+                Create one
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="px-3 py-2 text-xs text-gray-500 border-b border-white/10">
+                Add to playlist
+              </div>
+              {playlists.map(playlist => (
                 <button
-                  onClick={playPrevious}
-                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                  key={playlist.id}
+                  onClick={() => {
+                    addToPlaylist(playlist.id, {
+                                          id: currentVideo.id,
+                                          title: currentVideo.title,
+                                          artist: currentVideo.artist,
+                                          url: currentVideo.url,
+                                          thumbnail: currentVideo.thumbnail,
+                                          duration: currentVideo.duration,
+                                          views: currentVideo.views,
+                                          published: currentVideo.published
+                                        });
+                    setShowPlaylistDropdown(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 flex items-center justify-between"
                 >
-                  <SkipBack className="h-5 w-5" />
-                </button>
-                <button
-                  onClick={togglePlayPause}
-                  className="p-3 bg-pink-600 hover:bg-pink-700 rounded-full transition-colors"
-                >
-                  {isPlaying ? (
-                    <Pause className="h-6 w-6" />
-                  ) : (
-                    <Play className="h-6 w-6" />
+                  <span className="truncate">{playlist.name}</span>
+                  {playlist.songs.some(s => s.videoId === currentVideo.id) && (
+                    <Check className="h-4 w-4 text-pink-400" />
                   )}
                 </button>
-                <button
-                  onClick={playNext}
-                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                >
-                  <SkipForward className="h-5 w-5" />
-                </button>
-              </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    )}
+  </div>
+</div>
 
               {/* Volume Control */}
               <div className="flex items-center space-x-2 flex-1 justify-end">
