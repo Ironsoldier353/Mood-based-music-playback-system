@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-type RouteHandlerContext = { params: { id: string } };
 
 export async function DELETE(
   req: NextRequest,
-  context: RouteHandlerContext
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId: clerkId } = await auth();
-  const { id } = context.params;
+  const { id } = await params;
 
   if (!clerkId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
