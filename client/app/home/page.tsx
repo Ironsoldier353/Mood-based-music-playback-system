@@ -20,6 +20,7 @@ import {
   MoreVertical,
   Check,
   Trash2,
+  AudioLines
 } from "lucide-react";
 
 import ReactPlayer from "react-player/youtube";
@@ -108,7 +109,7 @@ export default function MusicApp() {
   const languages = [
     { id: "hindi", name: "Hindi", flag: "🇮🇳" },
     { id: "english", name: "English", flag: "🇺🇸" },
-    { id: "bengali", name: "Bengali", flag: "🇧🇩" },
+    { id: "bengali", name: "Bengali", flag: "🇮🇳" },
     { id: "punjabi", name: "Punjabi", flag: "🇮🇳" },
     { id: "tamil", name: "Tamil", flag: "🇮🇳" },
   ];
@@ -644,7 +645,7 @@ export default function MusicApp() {
           <div className="flex items-center justify-between h-16 md:hidden">
             <div className="flex items-center space-x-2">
               <div className="bg-pink-600 p-1.5 rounded-lg">
-                <Play className="h-4 w-4" />
+                <AudioLines className="h-4 w-4" />
               </div>
               <h1 className="text-lg font-bold">MusicStream</h1>
             </div>
@@ -698,7 +699,7 @@ export default function MusicApp() {
           <div className="hidden md:flex items-center justify-between h-16">
             <div className="flex items-center space-x-3">
               <div className="bg-pink-600 p-2 rounded-lg">
-                <Play className="h-6 w-6" />
+                <AudioLines className="h-6 w-6" />
               </div>
               <h1 className="text-xl font-bold">MusicStream</h1>
             </div>
