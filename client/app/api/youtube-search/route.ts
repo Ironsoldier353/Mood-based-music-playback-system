@@ -91,7 +91,7 @@ function getFallbackVideos(): VideoResult[] {
       id: "Pk5XZR4JhYQ",
       title: "Kesariya - Brahmāstra",
       artist: "Arijit Singh",
-      url: "https://www.youtube.com/watch?v=Pk5XZR4JhYQ",
+      url: "https://www.youtube.com/watch?v=BddP6PYo2gs&list=RDBddP6PYo2gs&start_radio=1",
       thumbnail: "https://i.ytimg.com/vi/Pk5XZR4JhYQ/hqdefault.jpg",
       duration: "4:28",
       views: "450M views",

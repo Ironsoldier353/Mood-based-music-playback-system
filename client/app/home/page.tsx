@@ -20,7 +20,7 @@ import {
   MoreVertical,
   Check,
   Trash2,
-  AudioLines
+  AudioLines,
 } from "lucide-react";
 
 import ReactPlayer from "react-player/youtube";
@@ -90,7 +90,9 @@ export default function MusicApp() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const playerRef = useRef<ReactPlayer>(null);
   const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false);
-  // Add this effect to handle clicks outside the dropdown
+  const [playedSeconds, setPlayedSeconds] = useState(0);
+  const historySubmitted = useRef<boolean>(false);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -278,6 +280,7 @@ export default function MusicApp() {
   }) => {
     if (!seeking) {
       setPlayed(state.played);
+      setPlayedSeconds(state.playedSeconds);
     }
   };
 
@@ -431,6 +434,60 @@ export default function MusicApp() {
       setIsLiking(false);
     }
   };
+
+  useEffect(() => {
+    // Reset submission flag when song changes
+    historySubmitted.current = false;
+
+    return () => {
+      // Cleanup if needed
+    };
+  }, [currentVideo?.id]);
+
+  useEffect(() => {
+    if (!currentVideo || historySubmitted.current) return;
+
+    const durationParts = currentVideo.duration
+      .split(":")
+      .map((part) => parseInt(part));
+    let durationInSeconds = 0;
+
+    if (durationParts.length === 3) {
+      // HH:MM:SS
+      durationInSeconds =
+        durationParts[0] * 3600 + durationParts[1] * 60 + durationParts[2];
+    } else if (durationParts.length === 2) {
+      // MM:SS
+      durationInSeconds = durationParts[0] * 60 + durationParts[1];
+    }
+
+    const threshold = Math.min(60, durationInSeconds * 0.5);
+
+    if (playedSeconds >= threshold) {
+      const submitHistory = async () => {
+        try {
+          historySubmitted.current = true;
+
+          await fetch("/api/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              videoId: currentVideo.id,
+              title: currentVideo.title,
+              artist: currentVideo.artist,
+              thumbnail: currentVideo.thumbnail,
+              duration: durationInSeconds,
+            }),
+          });
+        } catch (error) {
+          console.error("Failed to record history:", error);
+          historySubmitted.current = false;
+        }
+      };
+
+      submitHistory();
+    }
+  }, [playedSeconds, currentVideo?.id]);
 
   const fetchPlaylists = async () => {
     try {
