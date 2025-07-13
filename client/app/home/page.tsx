@@ -1606,10 +1606,10 @@ export default function MusicApp() {
 
       {/* Music Player */}
       {currentVideo && (
-        <div className="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-md border-t border-white/10 p-4 z-40">
+        <div className="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-md border-t border-white/10 p-3 z-40">
           <div className="container mx-auto">
-            {/* Progress Bar */}
-            <div className="mb-4">
+            {/* Progress Bar - on top */}
+            <div className="mb-2 w-full">
               <input
                 type="range"
                 min={0}
@@ -1627,7 +1627,94 @@ export default function MusicApp() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
+            {/* Mobile Layout */}
+            <div className="md:hidden flex flex-col">
+              {/* Song Info Row */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2 flex-1 min-w-0">
+                  <div className="relative h-10 w-10 rounded-md overflow-hidden flex-shrink-0">
+                    <Image
+                      src={currentVideo.thumbnail}
+                      alt={currentVideo.title}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-medium text-sm line-clamp-1">
+                      {currentVideo.title}
+                    </h3>
+                    <p className="text-xs text-gray-400 line-clamp-1">
+                      {currentVideo.artist}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Like and Add buttons */}
+                <div className="flex items-center space-x-2 ml-2">
+                  <button
+                    onClick={() => toggleLike(currentVideo)}
+                    className={`p-1.5 rounded-full ${
+                      likedSongs.some((s) => s.id === currentVideo.id)
+                        ? "text-pink-400"
+                        : "text-gray-400"
+                    }`}
+                    disabled={isLiking}
+                  >
+                    {isLiking &&
+                    likedSongs.some((s) => s.id === currentVideo.id) ? (
+                      <div className="h-4 w-4 border-2 border-pink-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Heart
+                        className="h-4 w-4"
+                        fill={
+                          likedSongs.some((s) => s.id === currentVideo.id)
+                            ? "#ec4899"
+                            : "none"
+                        }
+                      />
+                    )}
+                  </button>
+                  <button
+                    onClick={() =>
+                      setShowPlaylistDropdown(!showPlaylistDropdown)
+                    }
+                    className="p-1.5 rounded-full text-gray-400 hover:text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Controls Row */}
+              <div className="flex items-center justify-center gap-6">
+                <button
+                  onClick={playPrevious}
+                  className="p-2 rounded-full hover:bg-white/10"
+                >
+                  <SkipBack className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={togglePlayPause}
+                  className="p-3 bg-pink-600 hover:bg-pink-700 rounded-full"
+                >
+                  {isPlaying ? (
+                    <Pause className="h-6 w-6" />
+                  ) : (
+                    <Play className="h-6 w-6" />
+                  )}
+                </button>
+                <button
+                  onClick={playNext}
+                  className="p-2 rounded-full hover:bg-white/10"
+                >
+                  <SkipForward className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            {/* Desktop Layout */}
+            <div className="hidden md:flex items-center justify-between">
               {/* Song Info */}
               <div className="flex items-center space-x-3 flex-1 min-w-0">
                 <div className="relative h-12 w-12 rounded-md overflow-hidden flex-shrink-0">
@@ -1674,120 +1761,27 @@ export default function MusicApp() {
                   <SkipForward className="h-5 w-5" />
                 </button>
 
-                {/* Add to Liked Library */}
-                <button
-                  onClick={() => toggleLike(currentVideo)}
-                  className={`p-2 rounded-full hover:bg-white/10 transition-colors ${
-                    likedSongs.some((s) => s.id === currentVideo.id)
-                      ? "text-pink-400"
-                      : "text-gray-400"
-                  }`}
-                  disabled={isLiking}
-                >
-                  {isLiking &&
-                  likedSongs.some((s) => s.id === currentVideo.id) ? (
-                    <div className="h-5 w-5 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <Heart
-                      className="h-5 w-5"
-                      fill={
-                        likedSongs.some((s) => s.id === currentVideo.id)
-                          ? "#ec4899"
-                          : "none"
-                      }
-                    />
-                  )}
-                </button>
-
-                {/* Add to Playlist */}
-                <div className="relative">
+                {/* Volume Control */}
+                <div className="flex items-center space-x-2">
                   <button
-                    onClick={() =>
-                      setShowPlaylistDropdown(!showPlaylistDropdown)
-                    }
-                    className="p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
+                    onClick={toggleMute}
+                    className="p-2 rounded-full hover:bg-white/10 transition-colors"
                   >
-                    <Plus className="h-5 w-5" />
+                    {isMuted || volume === 0 ? (
+                      <VolumeX className="h-5 w-5" />
+                    ) : (
+                      <Volume2 className="h-5 w-5" />
+                    )}
                   </button>
-
-                  {/* Playlist Dropdown */}
-                  {showPlaylistDropdown && (
-                    <div className="absolute bottom-full mb-2 right-0 w-48 bg-gray-800 rounded-lg shadow-lg border border-white/10 z-50">
-                      <div className="p-2 max-h-60 overflow-y-auto">
-                        {playlists.length === 0 ? (
-                          <div className="p-2 text-center text-sm text-gray-400">
-                            <p>No playlists yet</p>
-                            <button
-                              onClick={() => {
-                                setShowPlaylistDropdown(false);
-                                setShowPlaylists(true);
-                              }}
-                              className="mt-2 text-pink-400 hover:text-pink-300 text-sm"
-                            >
-                              Create one
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="px-3 py-2 text-xs text-gray-500 border-b border-white/10">
-                              Add to playlist
-                            </div>
-                            {playlists.map((playlist) => (
-                              <button
-                                key={playlist.id}
-                                onClick={() => {
-                                  addToPlaylist(playlist.id, {
-                                    id: currentVideo.id,
-                                    title: currentVideo.title,
-                                    artist: currentVideo.artist,
-                                    url: currentVideo.url,
-                                    thumbnail: currentVideo.thumbnail,
-                                    duration: currentVideo.duration,
-                                    views: currentVideo.views,
-                                    published: currentVideo.published,
-                                  });
-                                  setShowPlaylistDropdown(false);
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 flex items-center justify-between"
-                              >
-                                <span className="truncate">
-                                  {playlist.name}
-                                </span>
-                                {playlist.songs.some(
-                                  (s) => s.videoId === currentVideo.id
-                                ) && (
-                                  <Check className="h-4 w-4 text-pink-400" />
-                                )}
-                              </button>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={changeVolume}
+                    className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
+                  />
                 </div>
-              </div>
-
-              {/* Volume Control */}
-              <div className="flex items-center space-x-2 flex-1 justify-end">
-                <button
-                  onClick={toggleMute}
-                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                >
-                  {isMuted || volume === 0 ? (
-                    <VolumeX className="h-5 w-5" />
-                  ) : (
-                    <Volume2 className="h-5 w-5" />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={changeVolume}
-                  className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
-                />
               </div>
             </div>
           </div>
