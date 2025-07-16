@@ -88,14 +88,14 @@ export async function GET(request: Request) {
 function getFallbackVideos(): VideoResult[] {
   return [
     {
-      id: "Pk5XZR4JhYQ",
+      id: "BddP6PYo2gs",
       title: "Kesariya - Brahmāstra",
       artist: "Arijit Singh",
-      url: "https://www.youtube.com/watch?v=BddP6PYo2gs&list=RDBddP6PYo2gs&start_radio=1",
-      thumbnail: "https://i.ytimg.com/vi/Pk5XZR4JhYQ/hqdefault.jpg",
+      url: "https://www.youtube.com/watch?v=BddP6PYo2gs",
+      thumbnail: "https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg",
       duration: "4:28",
       views: "450M views",
       published: "2 years ago",
-    },
+    }
   ];
 }
